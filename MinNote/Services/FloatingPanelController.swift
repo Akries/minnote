@@ -244,6 +244,11 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
                 return nil
             }
 
+            if self.settings.sidebarModeHotKey.matches(event: event) {
+                NotificationCenter.default.post(name: .toggleSidebarMode, object: nil)
+                return nil
+            }
+
             if self.settings.previousNoteHotKey.matches(event: event) {
                 self.store.selectPrevious()
                 return nil

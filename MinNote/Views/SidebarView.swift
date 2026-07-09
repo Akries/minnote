@@ -12,18 +12,9 @@ enum SidebarMode: String, CaseIterable, Identifiable {
     var systemImage: String {
         switch self {
         case .notes:
-            return "note.text"
+            return "rectangle.stack"
         case .outline:
             return "list.bullet.indent"
-        }
-    }
-
-    var help: String {
-        switch self {
-        case .notes:
-            return "笔记列表"
-        case .outline:
-            return "大纲"
         }
     }
 
@@ -35,10 +26,6 @@ enum SidebarMode: String, CaseIterable, Identifiable {
             return .notes
         }
     }
-
-    var toggleHelp: String {
-        "切换到\(toggled.help)"
-    }
 }
 
 struct SidebarView: View {
@@ -47,13 +34,16 @@ struct SidebarView: View {
     let notes: [PlainNote]
     let selectedNote: PlainNote?
     let outlineItems: [NoteOutlineItem]
+    let activeOutlineItemID: String?
     @Binding var mode: SidebarMode
     @Binding var searchText: String
     @Binding var selectedTag: NoteTag?
+    let onOpenStorageLocation: () -> Void
     let onSelectOutlineItem: (NoteOutlineItem) -> Void
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.openSettings) private var openSettings
+    @State private var collapsedH1IDs: Set<String> = []
 
     var body: some View {
         VStack(spacing: 12) {
@@ -115,6 +105,12 @@ struct SidebarView: View {
                         : Color.white.opacity(0.018)
                 )
             }
+        }
+        .onChange(of: selectedNote?.id) { _, _ in
+            collapsedH1IDs.removeAll()
+        }
+        .onChange(of: outlineItems) { _, _ in
+            reconcileCollapsedH1IDs()
         }
     }
 
@@ -184,9 +180,11 @@ struct SidebarView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Image(systemName: "note.text")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.secondary)
+            Image(systemName: "signature")
+                .font(.system(size: 17, weight: .semibold))
+                .symbolRenderingMode(.palette)
+                .foregroundStyle(.primary, Color.accentColor)
+                .frame(width: 18)
 
             Text("MinNote")
                 .font(.system(size: 15, weight: .semibold))
@@ -201,7 +199,6 @@ struct SidebarView: View {
                     .font(.system(size: 13, weight: .semibold))
             }
             .buttonStyle(IconButtonStyle())
-            .help(mode.toggleHelp)
         }
     }
 
@@ -280,6 +277,15 @@ struct SidebarView: View {
             Spacer()
 
             Button {
+                onOpenStorageLocation()
+            } label: {
+                Image(systemName: "folder")
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .buttonStyle(IconButtonStyle())
+            .help("打开存储位置")
+
+            Button {
                 openSettings()
             } label: {
                 Image(systemName: "gearshape")
@@ -291,11 +297,38 @@ struct SidebarView: View {
     }
 
     private var outlineHeader: some View {
-        Text(selectedNote?.title ?? "无标题")
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        HStack(spacing: 6) {
+            Text("大纲")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.primary)
+
+            Text("\(outlineItems.count)")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+
+            Spacer()
+
+            Button {
+                collapseAllH1()
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .buttonStyle(IconButtonStyle())
+            .disabled(h1ItemsWithChildren.isEmpty)
+            .help("全部收起")
+
+            Button {
+                expandAllH1()
+            } label: {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .buttonStyle(IconButtonStyle())
+            .disabled(collapsedH1IDs.isEmpty)
+            .help("全部展开")
+        }
+        .frame(height: 28)
     }
 
     private var outlineList: some View {
@@ -308,8 +341,16 @@ struct SidebarView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.top, 18)
                 } else {
-                    ForEach(outlineItems) { item in
-                        OutlineRowView(item: item) {
+                    ForEach(visibleOutlineItems) { item in
+                        OutlineRowView(
+                            item: item,
+                            hasChildren: hasOutlineChildren(item),
+                            isCollapsed: collapsedH1IDs.contains(item.id),
+                            isActive: item.id == activeOutlineDisplayID,
+                            onToggle: {
+                                toggleH1Collapse(item)
+                            }
+                        ) {
                             onSelectOutlineItem(item)
                         }
                     }
@@ -331,42 +372,172 @@ struct SidebarView: View {
                 colorScheme: colorScheme
             )
     }
+
+    private var h1ItemsWithChildren: [NoteOutlineItem] {
+        outlineItems.filter { item in
+            item.level == 1 && hasOutlineChildren(item)
+        }
+    }
+
+    private var visibleOutlineItems: [NoteOutlineItem] {
+        var visibleItems: [NoteOutlineItem] = []
+        var collapsedH1ID: String?
+
+        for item in outlineItems {
+            if item.level == 1 {
+                visibleItems.append(item)
+                collapsedH1ID = collapsedH1IDs.contains(item.id) ? item.id : nil
+                continue
+            }
+
+            if collapsedH1ID == nil {
+                visibleItems.append(item)
+            }
+        }
+
+        return visibleItems
+    }
+
+    private var activeOutlineDisplayID: String? {
+        guard let activeOutlineItemID else {
+            return nil
+        }
+
+        if visibleOutlineItems.contains(where: { $0.id == activeOutlineItemID }) {
+            return activeOutlineItemID
+        }
+
+        guard let activeIndex = outlineItems.firstIndex(where: { $0.id == activeOutlineItemID })
+        else {
+            return nil
+        }
+
+        return outlineItems[..<activeIndex].last { item in
+            item.level == 1 && collapsedH1IDs.contains(item.id)
+        }?.id
+    }
+
+    private func hasOutlineChildren(_ item: NoteOutlineItem) -> Bool {
+        guard item.level == 1,
+              let index = outlineItems.firstIndex(of: item)
+        else {
+            return false
+        }
+
+        for nextItem in outlineItems.dropFirst(index + 1) {
+            if nextItem.level <= item.level {
+                return false
+            }
+
+            return true
+        }
+
+        return false
+    }
+
+    private func toggleH1Collapse(_ item: NoteOutlineItem) {
+        guard hasOutlineChildren(item) else {
+            return
+        }
+
+        if collapsedH1IDs.contains(item.id) {
+            collapsedH1IDs.remove(item.id)
+        } else {
+            collapsedH1IDs.insert(item.id)
+        }
+    }
+
+    private func collapseAllH1() {
+        collapsedH1IDs = Set(h1ItemsWithChildren.map(\.id))
+    }
+
+    private func expandAllH1() {
+        collapsedH1IDs.removeAll()
+    }
+
+    private func reconcileCollapsedH1IDs() {
+        let validIDs = Set(h1ItemsWithChildren.map(\.id))
+        collapsedH1IDs = collapsedH1IDs.intersection(validIDs)
+    }
 }
 
 private struct OutlineRowView: View {
     let item: NoteOutlineItem
+    let hasChildren: Bool
+    let isCollapsed: Bool
+    let isActive: Bool
+    let onToggle: () -> Void
     let action: () -> Void
 
     private var leadingPadding: CGFloat {
-        CGFloat(max(item.level - 1, 0)) * 12
+        CGFloat(max(item.level - 1, 0)) * 14
+    }
+
+    private var titleFont: Font {
+        switch item.level {
+        case 1:
+            return .system(size: 13, weight: .semibold)
+        case 2:
+            return .system(size: 12, weight: .medium)
+        default:
+            return .system(size: 12, weight: .regular)
+        }
+    }
+
+    private var titleColor: Color {
+        if isActive {
+            return .accentColor
+        }
+
+        switch item.level {
+        case 1:
+            return .primary
+        case 2:
+            return .secondary
+        default:
+            return .secondary.opacity(0.78)
+        }
     }
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 7) {
-                Text("H\(item.level)")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 20, height: 18)
-                    .background(.primary.opacity(0.055), in: Capsule())
+        HStack(spacing: 6) {
+            Rectangle()
+                .fill(isActive ? Color.accentColor : Color.clear)
+                .frame(width: 2, height: 16)
+                .clipShape(Capsule())
 
+            Group {
+                if item.level == 1 {
+                    Button(action: onToggle) {
+                        Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(hasChildren ? .secondary : .tertiary)
+                            .frame(width: 12, height: 16)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!hasChildren)
+                    .opacity(hasChildren ? 1 : 0)
+                } else {
+                    Color.clear
+                        .frame(width: 12, height: 16)
+                }
+            }
+
+            Button(action: action) {
                 Text(item.title)
-                    .font(.system(size: 12, weight: item.level == 1 ? .semibold : .medium))
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
+                    .font(titleFont)
+                    .foregroundStyle(titleColor)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                     .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.leading, leadingPadding)
-            .padding(.trailing, 8)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .background {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.primary.opacity(0.045))
-            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
+        .padding(.leading, leadingPadding)
+        .padding(.trailing, 4)
+        .padding(.vertical, item.level == 1 ? 5 : 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .help(item.title)
     }
 }
@@ -384,6 +555,10 @@ private struct NoteRowView: View {
                     if showsTag, let tag = note.tag {
                         Circle()
                             .fill(tag.color)
+                            .overlay {
+                                Circle()
+                                    .stroke(.white.opacity(0.22), lineWidth: 1)
+                            }
                             .frame(width: 7, height: 7)
                             .help(tag.title)
                     }
@@ -437,6 +612,10 @@ private struct TagFilterButton: View {
         Button(action: action) {
             Circle()
                 .fill(tint)
+                .overlay {
+                    Circle()
+                        .stroke(.white.opacity(0.22), lineWidth: 1)
+                }
                 .frame(width: 8, height: 8)
                 .opacity(title == "全部" ? 0.45 : 1)
                 .frame(maxWidth: .infinity, minHeight: 22)

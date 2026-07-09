@@ -5,4 +5,5 @@ extension Notification.Name {
     static let toggleMarkdownToolbar = Notification.Name("MinNote.toggleMarkdownToolbar")
     static let applyMarkdownFormatting = Notification.Name("MinNote.applyMarkdownFormatting")
     static let toggleSidebar = Notification.Name("MinNote.toggleSidebar")
+    static let toggleSidebarMode = Notification.Name("MinNote.toggleSidebarMode")
 }

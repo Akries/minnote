@@ -163,6 +163,13 @@ struct SettingsView: View {
                 }
 
                 SettingsShortcutRow(
+                    title: "切换笔记大纲",
+                    configuration: $settings.sidebarModeHotKey
+                ) {
+                    settings.resetSidebarModeHotKey()
+                }
+
+                SettingsShortcutRow(
                     title: "预览/编辑",
                     configuration: $settings.markdownPreviewHotKey
                 ) {

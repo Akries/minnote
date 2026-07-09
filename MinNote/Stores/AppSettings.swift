@@ -14,6 +14,12 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    @Published var sidebarModeHotKey: HotKeyConfiguration {
+        didSet {
+            saveSidebarModeHotKey()
+        }
+    }
+
     @Published var markdownPreviewHotKey: HotKeyConfiguration {
         didSet {
             saveMarkdownPreviewHotKey()
@@ -121,6 +127,8 @@ final class AppSettings: ObservableObject {
     private let modifiersKey = "hotKey.modifiers"
     private let sidebarKeyCodeKey = "sidebarHotKey.keyCode"
     private let sidebarModifiersKey = "sidebarHotKey.modifiers"
+    private let sidebarModeKeyCodeKey = "sidebarModeHotKey.keyCode"
+    private let sidebarModeModifiersKey = "sidebarModeHotKey.modifiers"
     private let markdownPreviewKeyCodeKey = "markdownPreviewHotKey.keyCode"
     private let markdownPreviewModifiersKey = "markdownPreviewHotKey.modifiers"
     private let markdownToolbarKeyCodeKey = "markdownToolbarHotKey.keyCode"
@@ -170,6 +178,14 @@ final class AppSettings: ObservableObject {
             let keyCode = UInt32(userDefaults.integer(forKey: sidebarKeyCodeKey))
             let modifiers = UInt32(userDefaults.integer(forKey: sidebarModifiersKey))
             self.sidebarHotKey = HotKeyConfiguration(keyCode: keyCode, modifiers: modifiers)
+        }
+
+        if userDefaults.object(forKey: sidebarModeKeyCodeKey) == nil {
+            self.sidebarModeHotKey = .sidebarModeDefault
+        } else {
+            let keyCode = UInt32(userDefaults.integer(forKey: sidebarModeKeyCodeKey))
+            let modifiers = UInt32(userDefaults.integer(forKey: sidebarModeModifiersKey))
+            self.sidebarModeHotKey = HotKeyConfiguration(keyCode: keyCode, modifiers: modifiers)
         }
 
         if userDefaults.object(forKey: markdownPreviewKeyCodeKey) == nil {
@@ -312,6 +328,10 @@ final class AppSettings: ObservableObject {
         sidebarHotKey = .sidebarDefault
     }
 
+    func resetSidebarModeHotKey() {
+        sidebarModeHotKey = .sidebarModeDefault
+    }
+
     func resetMarkdownPreviewHotKey() {
         markdownPreviewHotKey = .markdownPreviewDefault
     }
@@ -365,6 +385,11 @@ final class AppSettings: ObservableObject {
     private func saveSidebarHotKey() {
         userDefaults.set(Int(sidebarHotKey.keyCode), forKey: sidebarKeyCodeKey)
         userDefaults.set(Int(sidebarHotKey.modifiers), forKey: sidebarModifiersKey)
+    }
+
+    private func saveSidebarModeHotKey() {
+        userDefaults.set(Int(sidebarModeHotKey.keyCode), forKey: sidebarModeKeyCodeKey)
+        userDefaults.set(Int(sidebarModeHotKey.modifiers), forKey: sidebarModeModifiersKey)
     }
 
     private func saveMarkdownPreviewHotKey() {

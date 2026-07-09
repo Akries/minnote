@@ -16,6 +16,11 @@ struct HotKeyConfiguration: Equatable {
         modifiers: UInt32(cmdKey)
     )
 
+    static let sidebarModeDefault = HotKeyConfiguration(
+        keyCode: UInt32(kVK_ANSI_Semicolon),
+        modifiers: UInt32(cmdKey)
+    )
+
     static let markdownPreviewDefault = HotKeyConfiguration(
         keyCode: UInt32(kVK_ANSI_Slash),
         modifiers: UInt32(cmdKey)
@@ -195,6 +200,7 @@ struct HotKeyConfiguration: Equatable {
         UInt32(kVK_ANSI_9): "9",
         UInt32(kVK_ANSI_Comma): ",",
         UInt32(kVK_ANSI_Period): ".",
+        UInt32(kVK_ANSI_Semicolon): ";",
         UInt32(kVK_ANSI_Slash): "/",
         UInt32(kVK_ANSI_Quote): "'",
         UInt32(kVK_Space): "Space",

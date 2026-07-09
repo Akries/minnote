@@ -21,7 +21,6 @@ struct MinNoteApp: App {
             Button("删除当前笔记") {
                 controller.deleteSelectedNote()
             }
-            .keyboardShortcut(.delete, modifiers: [.command])
 
             Button("打开存储位置") {
                 controller.openStorageLocation()

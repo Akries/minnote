@@ -10,6 +10,8 @@ struct ContentView: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var searchText = ""
     @State private var selectedTag: NoteTag?
+    @State private var sidebarMode: SidebarMode = .notes
+    @State private var outlineNavigationTarget: NoteOutlineNavigationTarget?
     @AppStorage("sidebarCollapsed") private var sidebarCollapsed = true
 
     private var filteredNotes: [PlainNote] {
@@ -40,6 +42,10 @@ struct ContentView: View {
             .joined(separator: "|")
     }
 
+    private var selectedOutlineItems: [NoteOutlineItem] {
+        store.selectedNote?.outlineItems ?? []
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             if !sidebarCollapsed {
@@ -47,9 +53,14 @@ struct ContentView: View {
                     store: store,
                     settings: settings,
                     notes: filteredNotes,
+                    selectedNote: store.selectedNote,
+                    outlineItems: selectedOutlineItems,
+                    mode: $sidebarMode,
                     searchText: $searchText,
                     selectedTag: $selectedTag
-                )
+                ) { item in
+                    outlineNavigationTarget = NoteOutlineNavigationTarget(location: item.location)
+                }
                 .frame(width: 210)
 
                 Rectangle()
@@ -62,6 +73,7 @@ struct ContentView: View {
                 settings: settings,
                 note: store.selectedNote,
                 sidebarCollapsed: sidebarCollapsedBinding,
+                outlineNavigationTarget: outlineNavigationTarget,
                 onOpenStorageLocation: onOpenStorageLocation
             )
         }
@@ -85,6 +97,9 @@ struct ContentView: View {
             if newValue == .compact {
                 selectedTag = nil
             }
+        }
+        .onChange(of: store.selectedNoteID) { _, _ in
+            outlineNavigationTarget = nil
         }
         .frame(
             minWidth: 220,

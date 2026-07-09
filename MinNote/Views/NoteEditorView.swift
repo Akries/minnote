@@ -6,6 +6,7 @@ struct NoteEditorView: View {
     @ObservedObject var settings: AppSettings
     let note: PlainNote?
     @Binding var sidebarCollapsed: Bool
+    let outlineNavigationTarget: NoteOutlineNavigationTarget?
     let onOpenStorageLocation: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
@@ -32,6 +33,9 @@ struct NoteEditorView: View {
         .onChange(of: store.selectedNoteID) { _, _ in
             syncEditorSnapshotFromStore()
             focusEditor()
+        }
+        .onChange(of: outlineNavigationTarget?.id) { _, _ in
+            navigateToOutlineTarget(outlineNavigationTarget)
         }
         .onReceive(NotificationCenter.default.publisher(for: .toggleMarkdownPreview)) { _ in
             guard isMarkdownMode else {
@@ -139,6 +143,16 @@ struct NoteEditorView: View {
             .buttonStyle(IconButtonStyle())
             .help("打开存储位置")
 
+            Button(role: .destructive) {
+                store.deleteSelectedNote()
+            } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            .buttonStyle(IconButtonStyle())
+            .disabled(note == nil)
+            .help("删除当前笔记")
+
             Button {
                 store.createNote()
             } label: {
@@ -245,34 +259,6 @@ struct NoteEditorView: View {
     }
 
     @ViewBuilder
-    private var capsuleChromeBackground: some View {
-        if settings.visualTheme == .transparent {
-            TransparentLiquidBackground(
-                material: .popover,
-                tint: colorScheme == .light
-                    ? Color.white.opacity(0.058)
-                    : Color.black.opacity(0.110),
-                sheen: colorScheme == .light
-                    ? Color.white.opacity(0.30)
-                    : Color.white.opacity(0.080),
-                reflection: colorScheme == .light
-                    ? MinNoteTheme.glassCoolHighlight.opacity(0.050)
-                    : Color.white.opacity(0.018),
-                topGlow: colorScheme == .light
-                    ? Color.white.opacity(0.20)
-                    : Color.white.opacity(0.060)
-            )
-            .clipShape(Capsule())
-        } else if colorScheme == .light {
-            Capsule()
-                .fill(MinNoteTheme.pillSurface.opacity(0.95))
-        } else {
-            Capsule()
-                .fill(.regularMaterial)
-        }
-    }
-
-    @ViewBuilder
     private var toolbarChromeBackground: some View {
         if settings.visualTheme == .transparent {
             TransparentLiquidBackground(
@@ -301,23 +287,17 @@ struct NoteEditorView: View {
     }
 
     private var chromeBorderColor: Color {
-        if settings.visualTheme == .transparent {
-            colorScheme == .light
-                ? Color.white.opacity(0.38)
-                : Color.white.opacity(0.13)
-        } else {
-            Color.primary.opacity(0.08)
-        }
+        FloatingChromeStyle.borderColor(
+            visualTheme: settings.visualTheme,
+            colorScheme: colorScheme
+        )
     }
 
     private var chromeShadowColor: Color {
-        if settings.visualTheme == .transparent {
-            colorScheme == .light
-                ? Color.black.opacity(0.045)
-                : Color.black.opacity(0.16)
-        } else {
-            Color.black.opacity(0.08)
-        }
+        FloatingChromeStyle.shadowColor(
+            visualTheme: settings.visualTheme,
+            colorScheme: colorScheme
+        )
     }
 
     @ViewBuilder
@@ -429,14 +409,10 @@ struct NoteEditorView: View {
             }
             .padding(.horizontal, 10)
             .frame(height: FloatingChromeMetrics.pillHeight)
-            .background {
-                capsuleChromeBackground
-            }
-            .overlay {
-                Capsule()
-                    .stroke(chromeBorderColor, lineWidth: 1)
-            }
-            .shadow(color: chromeShadowColor, radius: 8, y: 3)
+            .floatingCapsuleChrome(
+                visualTheme: settings.visualTheme,
+                colorScheme: colorScheme
+            )
         }
         .buttonStyle(.plain)
         .disabled(note == nil)
@@ -472,14 +448,10 @@ struct NoteEditorView: View {
             .lineLimit(1)
             .padding(.horizontal, 10)
             .frame(height: FloatingChromeMetrics.pillHeight)
-            .background {
-                capsuleChromeBackground
-            }
-            .overlay {
-                Capsule()
-                    .stroke(chromeBorderColor, lineWidth: 1)
-            }
-            .shadow(color: chromeShadowColor, radius: 8, y: 3)
+            .floatingCapsuleChrome(
+                visualTheme: settings.visualTheme,
+                colorScheme: colorScheme
+            )
     }
 
     @ViewBuilder
@@ -502,14 +474,10 @@ struct NoteEditorView: View {
             }
             .padding(.horizontal, 10)
             .frame(height: FloatingChromeMetrics.pillHeight)
-            .background {
-                capsuleChromeBackground
-            }
-            .overlay {
-                Capsule()
-                    .stroke(chromeBorderColor, lineWidth: 1)
-            }
-            .shadow(color: chromeShadowColor, radius: 8, y: 3)
+            .floatingCapsuleChrome(
+                visualTheme: settings.visualTheme,
+                colorScheme: colorScheme
+            )
             .allowsHitTesting(false)
         }
     }
@@ -656,6 +624,47 @@ struct NoteEditorView: View {
         let text = store.selectedText
         previewText = text
         isPlaceholderVisible = text.isEmpty
+    }
+
+    private func navigateToOutlineTarget(_ target: NoteOutlineNavigationTarget?) {
+        guard let target else {
+            return
+        }
+
+        if markdownPreviewEnabled {
+            setMarkdownPreviewEnabled(false)
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            scrollEditor(to: target.location)
+        }
+    }
+
+    private func scrollEditor(to location: Int, retryCount: Int = 0) {
+        guard let activeTextView,
+              activeTextView.window != nil
+        else {
+            guard retryCount < 3 else {
+                return
+            }
+
+            focusEditor()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                scrollEditor(to: location, retryCount: retryCount + 1)
+            }
+            return
+        }
+
+        let text = activeTextView.string as NSString
+        guard text.length > 0 else {
+            return
+        }
+
+        let clampedLocation = min(max(location, 0), text.length - 1)
+        let lineRange = text.lineRange(for: NSRange(location: clampedLocation, length: 0))
+        activeTextView.window?.makeFirstResponder(activeTextView)
+        activeTextView.setSelectedRange(NSRange(location: lineRange.location, length: 0))
+        activeTextView.scrollRangeToVisible(lineRange)
     }
 
     private func toggledTaskLine(_ line: String) -> String? {

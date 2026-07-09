@@ -1,12 +1,43 @@
 import AppKit
 import SwiftUI
 
+enum SidebarMode: String, CaseIterable, Identifiable {
+    case notes
+    case outline
+
+    var id: String {
+        rawValue
+    }
+
+    var systemImage: String {
+        switch self {
+        case .notes:
+            return "note.text"
+        case .outline:
+            return "list.bullet.indent"
+        }
+    }
+
+    var help: String {
+        switch self {
+        case .notes:
+            return "笔记列表"
+        case .outline:
+            return "大纲"
+        }
+    }
+}
+
 struct SidebarView: View {
     @ObservedObject var store: NoteStore
     @ObservedObject var settings: AppSettings
     let notes: [PlainNote]
+    let selectedNote: PlainNote?
+    let outlineItems: [NoteOutlineItem]
+    @Binding var mode: SidebarMode
     @Binding var searchText: String
     @Binding var selectedTag: NoteTag?
+    let onSelectOutlineItem: (NoteOutlineItem) -> Void
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.openSettings) private var openSettings
@@ -14,12 +45,19 @@ struct SidebarView: View {
     var body: some View {
         VStack(spacing: 12) {
             header
-            searchField
-            if settings.tagDisplayMode == .tags {
-                tagFilter
+
+            switch mode {
+            case .notes:
+                searchField
+                if settings.tagDisplayMode == .tags {
+                    tagFilter
+                }
+                notesList
+                footer
+            case .outline:
+                outlineHeader
+                outlineList
             }
-            notesList
-            footer
         }
         .padding(14)
         .background {
@@ -143,15 +181,16 @@ struct SidebarView: View {
 
             Spacer()
 
-            Button {
-                store.createNote()
-            } label: {
-                Image(systemName: "square.and.pencil")
-                    .font(.system(size: 14, weight: .semibold))
+            Picker("侧边栏模式", selection: $mode) {
+                ForEach(SidebarMode.allCases) { mode in
+                    Image(systemName: mode.systemImage)
+                        .tag(mode)
+                        .help(mode.help)
+                }
             }
-            .buttonStyle(IconButtonStyle())
-            .help("新建笔记")
-            .keyboardShortcut("n", modifiers: [.command])
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 78)
         }
     }
 
@@ -229,16 +268,6 @@ struct SidebarView: View {
 
             Spacer()
 
-            Button(role: .destructive) {
-                store.deleteSelectedNote()
-            } label: {
-                Image(systemName: "trash")
-                    .font(.system(size: 12, weight: .semibold))
-            }
-            .buttonStyle(IconButtonStyle())
-            .help("删除当前笔记")
-            .keyboardShortcut(.delete, modifiers: [.command])
-
             Button {
                 openSettings()
             } label: {
@@ -250,26 +279,84 @@ struct SidebarView: View {
         }
     }
 
+    private var outlineHeader: some View {
+        Text(selectedNote?.title ?? "无标题")
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var outlineList: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 4) {
+                if outlineItems.isEmpty {
+                    Text("当前笔记暂无大纲")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 18)
+                } else {
+                    ForEach(outlineItems) { item in
+                        OutlineRowView(item: item) {
+                            onSelectOutlineItem(item)
+                        }
+                    }
+                }
+            }
+            .padding(.vertical, 2)
+        }
+        .scrollIndicators(.hidden)
+    }
+
     private var countPill: some View {
         Text("\(notes.count) 条")
             .font(.system(size: 11, weight: .medium))
             .foregroundStyle(.secondary)
             .padding(.horizontal, 10)
+            .frame(height: 28)
+            .floatingCapsuleChrome(
+                visualTheme: settings.visualTheme,
+                colorScheme: colorScheme
+            )
+    }
+}
+
+private struct OutlineRowView: View {
+    let item: NoteOutlineItem
+    let action: () -> Void
+
+    private var leadingPadding: CGFloat {
+        CGFloat(max(item.level - 1, 0)) * 12
+    }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                Text("H\(item.level)")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20, height: 18)
+                    .background(.primary.opacity(0.055), in: Capsule())
+
+                Text(item.title)
+                    .font(.system(size: 12, weight: item.level == 1 ? .semibold : .medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+            }
+            .padding(.leading, leadingPadding)
+            .padding(.trailing, 8)
             .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .background {
-                if colorScheme == .light {
-                    Capsule()
-                        .fill(MinNoteTheme.pillSurface.opacity(0.95))
-                } else {
-                    Capsule()
-                        .fill(.regularMaterial)
-                }
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.primary.opacity(0.045))
             }
-            .overlay {
-                Capsule()
-                    .stroke(.primary.opacity(0.08), lineWidth: 1)
-            }
-            .shadow(color: .black.opacity(0.07), radius: 7, y: 3)
+        }
+        .buttonStyle(.plain)
+        .help(item.title)
     }
 }
 

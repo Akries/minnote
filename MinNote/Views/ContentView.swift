@@ -69,13 +69,42 @@ struct ContentView: View {
                     onOpenStorageLocation: onOpenStorageLocation
                 ) { item in
                     outlineNavigationTarget = NoteOutlineNavigationTarget(location: item.location)
-                }
-                .frame(width: 210)
+        ZStack {
+            windowBackground
+                .ignoresSafeArea(.container, edges: .top)
 
-                Rectangle()
-                    .fill(sidebarDividerColor)
-                    .frame(width: 1)
+            HStack(spacing: 0) {
+                if !sidebarCollapsed {
+                    SidebarView(
+                        store: store,
+                        settings: settings,
+                        notes: filteredNotes,
+                        selectedNote: store.selectedNote,
+                        outlineItems: selectedOutlineItems,
+                        mode: $sidebarMode,
+                        searchText: $searchText,
+                        selectedTag: $selectedTag
+                    ) { item in
+                        outlineNavigationTarget = NoteOutlineNavigationTarget(location: item.location)
+                    }
+                    .frame(width: 210)
+
+                    Rectangle()
+                        .fill(sidebarDividerColor)
+                        .frame(width: 1)
+                }
+
+                NoteEditorView(
+                    store: store,
+                    settings: settings,
+                    note: store.selectedNote,
+                    sidebarCollapsed: sidebarCollapsedBinding,
+                    outlineNavigationTarget: outlineNavigationTarget,
+                    onOpenStorageLocation: onOpenStorageLocation
+                )
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .ignoresSafeArea(.container, edges: .top)
 
             NoteEditorView(
                 store: store,
@@ -87,6 +116,11 @@ struct ContentView: View {
                     editorSelectionLocation = location
                 }
             )
+            WindowTrafficLightControls()
+                .padding(.leading, 18)
+                .padding(.top, 14)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .zIndex(10)
         }
         .transaction { transaction in
             transaction.animation = nil
@@ -121,7 +155,6 @@ struct ContentView: View {
             minHeight: 360,
             idealHeight: 460
         )
-        .background(windowBackground)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay {
             if settings.visualTheme == .transparent {
@@ -251,5 +284,91 @@ struct ContentView: View {
         }
 
         store.select(firstNote)
+    }
+}
+
+private struct WindowTrafficLightControls: View {
+    @State private var window: NSWindow?
+
+    var body: some View {
+        HStack(spacing: 8) {
+            TrafficLightButton(
+                fill: Color(red: 1.000, green: 0.369, blue: 0.337),
+                stroke: Color(red: 0.720, green: 0.110, blue: 0.100),
+                symbol: "xmark",
+                accessibilityLabel: "关闭"
+            ) {
+                window?.close()
+            }
+
+            TrafficLightButton(
+                fill: Color(red: 1.000, green: 0.796, blue: 0.165),
+                stroke: Color(red: 0.740, green: 0.500, blue: 0.060),
+                symbol: "minus",
+                accessibilityLabel: "最小化"
+            ) {
+                window?.miniaturize(nil)
+            }
+
+            TrafficLightButton(
+                fill: Color(red: 0.203, green: 0.816, blue: 0.286),
+                stroke: Color(red: 0.070, green: 0.500, blue: 0.125),
+                symbol: "arrow.up.left.and.arrow.down.right",
+                accessibilityLabel: "全屏"
+            ) {
+                window?.toggleFullScreen(nil)
+            }
+        }
+        .frame(height: 16)
+        .background(WindowAccessor { window = $0 })
+    }
+}
+
+private struct TrafficLightButton: View {
+    let fill: Color
+    let stroke: Color
+    let symbol: String
+    let accessibilityLabel: String
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                Circle()
+                    .fill(fill)
+
+                Circle()
+                    .stroke(stroke.opacity(0.74), lineWidth: 0.8)
+
+                Image(systemName: symbol)
+                    .font(.system(size: 6.5, weight: .bold))
+                    .foregroundStyle(.black.opacity(0.48))
+                    .opacity(isHovering ? 1 : 0)
+            }
+            .frame(width: 14, height: 14)
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .accessibilityLabel(accessibilityLabel)
+    }
+}
+
+private struct WindowAccessor: NSViewRepresentable {
+    let onResolve: (NSWindow?) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        DispatchQueue.main.async {
+            onResolve(view.window)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            onResolve(nsView.window)
+        }
     }
 }

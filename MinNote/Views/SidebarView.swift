@@ -43,8 +43,8 @@ struct SidebarView: View {
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.openSettings) private var openSettings
-    private let trafficLightContentInset: CGFloat = 62
     @State private var collapsedH1IDs: Set<String> = []
+    private let trafficLightContentInset: CGFloat = 62
 
     var body: some View {
         VStack(spacing: 12) {

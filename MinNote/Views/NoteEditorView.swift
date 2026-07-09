@@ -153,15 +153,9 @@ struct NoteEditorView: View {
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.primary.opacity(0.86))
-                    .frame(width: 28, height: 28)
-                    .background {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(.primary.opacity(0.055))
-                    }
-                    .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
             .menuStyle(.borderlessButton)
+            .buttonStyle(IconButtonStyle())
             .fixedSize()
             .help("更多")
         }

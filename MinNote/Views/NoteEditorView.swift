@@ -162,7 +162,8 @@ struct NoteEditorView: View {
             .buttonStyle(IconButtonStyle())
             .help("新建笔记")
         }
-        .padding(.horizontal, 18)
+        .padding(.leading, sidebarCollapsed ? 78 : 18)
+        .padding(.trailing, 18)
         .frame(height: 54)
         .background(headerBackground)
         .overlay(alignment: .bottom) {

@@ -20,7 +20,7 @@ final class AppController: ObservableObject {
         }
 
         didStart = true
-        NSApp.setActivationPolicy(.accessory)
+        NSApp.setActivationPolicy(.regular)
 
         let hotKeyManager = HotKeyManager { [weak self] in
             self?.togglePanel()

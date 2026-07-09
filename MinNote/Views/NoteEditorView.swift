@@ -6,6 +6,7 @@ struct NoteEditorView: View {
     @ObservedObject var settings: AppSettings
     let note: PlainNote?
     @Binding var sidebarCollapsed: Bool
+    let outlineNavigationTarget: NoteOutlineNavigationTarget?
     let onOpenStorageLocation: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
@@ -32,6 +33,9 @@ struct NoteEditorView: View {
         .onChange(of: store.selectedNoteID) { _, _ in
             syncEditorSnapshotFromStore()
             focusEditor()
+        }
+        .onChange(of: outlineNavigationTarget?.id) { _, _ in
+            navigateToOutlineTarget(outlineNavigationTarget)
         }
         .onReceive(NotificationCenter.default.publisher(for: .toggleMarkdownPreview)) { _ in
             guard isMarkdownMode else {
@@ -138,6 +142,17 @@ struct NoteEditorView: View {
             }
             .buttonStyle(IconButtonStyle())
             .help("打开存储位置")
+
+            Button(role: .destructive) {
+                store.deleteSelectedNote()
+            } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            .buttonStyle(IconButtonStyle())
+            .disabled(note == nil)
+            .help("删除当前笔记")
+            .keyboardShortcut(.delete, modifiers: [.command])
 
             Button {
                 store.createNote()
@@ -610,6 +625,47 @@ struct NoteEditorView: View {
         let text = store.selectedText
         previewText = text
         isPlaceholderVisible = text.isEmpty
+    }
+
+    private func navigateToOutlineTarget(_ target: NoteOutlineNavigationTarget?) {
+        guard let target else {
+            return
+        }
+
+        if markdownPreviewEnabled {
+            setMarkdownPreviewEnabled(false)
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            scrollEditor(to: target.location)
+        }
+    }
+
+    private func scrollEditor(to location: Int, retryCount: Int = 0) {
+        guard let activeTextView,
+              activeTextView.window != nil
+        else {
+            guard retryCount < 3 else {
+                return
+            }
+
+            focusEditor()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                scrollEditor(to: location, retryCount: retryCount + 1)
+            }
+            return
+        }
+
+        let text = activeTextView.string as NSString
+        guard text.length > 0 else {
+            return
+        }
+
+        let clampedLocation = min(max(location, 0), text.length - 1)
+        let lineRange = text.lineRange(for: NSRange(location: clampedLocation, length: 0))
+        activeTextView.window?.makeFirstResponder(activeTextView)
+        activeTextView.setSelectedRange(NSRange(location: lineRange.location, length: 0))
+        activeTextView.scrollRangeToVisible(lineRange)
     }
 
     private func toggledTaskLine(_ line: String) -> String? {

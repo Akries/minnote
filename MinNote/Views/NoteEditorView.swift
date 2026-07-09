@@ -151,11 +151,9 @@ struct NoteEditorView: View {
                 }
                 .disabled(note == nil)
             } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 13, weight: .semibold))
+                IconButtonLabel(systemName: "ellipsis")
             }
             .menuStyle(.borderlessButton)
-            .buttonStyle(IconButtonStyle())
             .fixedSize()
             .help("更多")
         }

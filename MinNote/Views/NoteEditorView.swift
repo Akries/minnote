@@ -144,20 +144,36 @@ struct NoteEditorView: View {
             .buttonStyle(IconButtonStyle(buttonStyle: settings.buttonStyle, visualTheme: settings.visualTheme))
             .help("新建笔记")
 
-            Button {
-                editorMoreMenuPresented.toggle()
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 13, weight: .semibold))
-            }
-            .buttonStyle(IconButtonStyle(buttonStyle: settings.buttonStyle, visualTheme: settings.visualTheme))
-            .popover(isPresented: $editorMoreMenuPresented, arrowEdge: .top) {
-                EditorMoreMenuPopover(canDeleteNote: note != nil) {
-                    store.deleteSelectedNote()
-                    editorMoreMenuPresented = false
+            ZStack {
+                Button {
+                    editorMoreMenuPresented.toggle()
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 13, weight: .semibold))
                 }
+                .buttonStyle(IconButtonStyle(buttonStyle: settings.buttonStyle, visualTheme: settings.visualTheme))
+                .help("更多")
+
+                Color.clear
+                    .frame(width: 1, height: 1)
+                    .allowsHitTesting(false)
+                    .popover(isPresented: $editorMoreMenuPresented, arrowEdge: .top) {
+                        EditorMoreMenuPopover(canDeleteNote: note != nil) {
+                            store.deleteSelectedNote()
+                            editorMoreMenuPresented = false
+                        }
+                    }
             }
-            .help("更多")
+            .frame(width: 28, height: 28)
+            .onChange(of: settings.visualTheme) { _, _ in
+                editorMoreMenuPresented = false
+            }
+            .onChange(of: settings.buttonStyle) { _, _ in
+                editorMoreMenuPresented = false
+            }
+            .onChange(of: colorScheme) { _, _ in
+                editorMoreMenuPresented = false
+            }
         }
         .padding(.horizontal, 18)
         .frame(height: 54)

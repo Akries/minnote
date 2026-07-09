@@ -95,7 +95,7 @@ final class AppSettings: ObservableObject {
     @Published var visualTheme: AppVisualTheme {
         didSet {
             saveVisualTheme()
-            applyDefaultButtonStyleForThemeIfNeeded()
+            applyDefaultButtonStyleForTheme()
         }
     }
 
@@ -511,22 +511,22 @@ final class AppSettings: ObservableObject {
             .appendingPathComponent("Notes", isDirectory: true)
     }
 
-    private func applyDefaultButtonStyleForThemeIfNeeded() {
-        guard !userDefaults.bool(forKey: buttonStyleCustomizedKey) else {
-            return
-        }
-
-        applyDefaultButtonStyleForTheme()
-    }
-
     private func applyDefaultButtonStyleForTheme() {
         isApplyingThemeButtonStyleDefault = true
+        userDefaults.set(false, forKey: buttonStyleCustomizedKey)
         buttonStyle = Self.defaultButtonStyle(for: visualTheme)
         isApplyingThemeButtonStyleDefault = false
     }
 
     private static func defaultButtonStyle(for visualTheme: AppVisualTheme) -> AppButtonStyle {
-        visualTheme == .transparent ? .glass : .standard
+        switch visualTheme {
+        case .standard:
+            return .standard
+        case .glass:
+            return .glass
+        case .transparent:
+            return .transparent
+        }
     }
 
     private static func loadHotKey(

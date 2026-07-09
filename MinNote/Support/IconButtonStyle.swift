@@ -65,6 +65,8 @@ private struct IconButtonChrome<Label: View>: View {
                 .fill(.primary.opacity(isPressed ? 0.12 : 0.055))
         case .glass:
             glassBackground
+        case .transparent:
+            transparentBackground
         }
     }
 
@@ -113,5 +115,31 @@ private struct IconButtonChrome<Label: View>: View {
                 y: isPressed ? 1 : 3
             )
         }
+    }
+
+    @ViewBuilder
+    private var transparentBackground: some View {
+        FloatingChromeStyle.capsuleBackground(
+            visualTheme: .transparent,
+            colorScheme: colorScheme
+        )
+        .overlay {
+            Capsule()
+                .stroke(
+                    FloatingChromeStyle.borderColor(
+                        visualTheme: .transparent,
+                        colorScheme: colorScheme
+                    ),
+                    lineWidth: 1
+                )
+        }
+        .shadow(
+            color: FloatingChromeStyle.shadowColor(
+                visualTheme: .transparent,
+                colorScheme: colorScheme
+            ),
+            radius: 8,
+            y: 3
+        )
     }
 }

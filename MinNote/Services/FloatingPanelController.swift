@@ -56,19 +56,17 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
     private func makePanel() -> FloatingNotePanel {
         let panel = FloatingNotePanel(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 640),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            styleMask: [.borderless, .resizable],
             backing: .buffered,
             defer: false
         )
 
         panel.title = "MinNote"
-        panel.titleVisibility = .hidden
-        panel.titlebarAppearsTransparent = true
         panel.isMovableByWindowBackground = true
-        panel.isFloatingPanel = true
-        panel.level = .floating
+        panel.isFloatingPanel = false
+        panel.level = .normal
         panel.hidesOnDeactivate = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenPrimary]
+        panel.collectionBehavior = [.managed, .fullScreenPrimary]
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = true
@@ -78,10 +76,6 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
         panel.onCancel = { [weak self] in
             self?.hide()
         }
-
-        panel.standardWindowButton(.closeButton)?.isHidden = false
-        panel.standardWindowButton(.miniaturizeButton)?.isHidden = false
-        panel.standardWindowButton(.zoomButton)?.isHidden = false
 
         let rootView = ContentView(
             store: store,
@@ -99,7 +93,7 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
                 NSWorkspace.shared.open(directory)
             }
         )
-        let hostingController = NSHostingController(rootView: rootView)
+        let hostingController = FullSizeHostingController(rootView: rootView)
         hostingController.view.wantsLayer = true
         hostingController.view.layer?.cornerRadius = 18
         hostingController.view.layer?.masksToBounds = true
@@ -283,6 +277,23 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         store.flushPendingSave()
         removeLocalKeyMonitor()
+    }
+
+}
+
+private final class FullSizeHostingController<Content: View>: NSHostingController<Content> {
+    override func loadView() {
+        view = FullSizeHostingView(rootView: rootView)
+    }
+}
+
+private final class FullSizeHostingView<Content: View>: NSHostingView<Content> {
+    override var safeAreaInsets: NSEdgeInsets {
+        NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+    }
+
+    override var safeAreaRect: NSRect {
+        bounds
     }
 }
 

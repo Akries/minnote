@@ -54,6 +54,7 @@ struct SidebarView: View {
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.openSettings) private var openSettings
+    private let trafficLightContentInset: CGFloat = 62
 
     var body: some View {
         VStack(spacing: 12) {
@@ -203,6 +204,7 @@ struct SidebarView: View {
             .buttonStyle(IconButtonStyle())
             .help(mode.toggleHelp)
         }
+        .padding(.leading, trafficLightContentInset)
     }
 
     private var searchField: some View {
@@ -268,7 +270,7 @@ struct SidebarView: View {
                     }
                 }
             }
-            .padding(.vertical, 2)
+            .padding(.vertical, 4)
         }
         .scrollIndicators(.hidden)
     }
@@ -422,8 +424,85 @@ private struct NoteRowView: View {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(isSelected ? Color.primary.opacity(0.095) : Color.clear)
             }
+            .overlay {
+                if isSelected {
+                    AkriesFlowBorderMotion(cornerRadius: 8)
+                }
+            }
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct AkriesFlowBorderMotion: View {
+    let cornerRadius: CGFloat
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+            let metrics = motionMetrics(at: timeline.date)
+            let pulse = reduceMotion ? 0.35 : metrics.pulse
+            let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            let gradient = flowGradient(angle: reduceMotion ? .degrees(18) : metrics.angle)
+
+            ZStack {
+                shape
+                    .inset(by: 0.7)
+                    .stroke(baseStroke, lineWidth: 1)
+
+                shape
+                    .inset(by: 1.2)
+                    .stroke(gradient, style: StrokeStyle(lineWidth: 1.15 + pulse * 0.35, lineCap: .round, lineJoin: .round))
+                    .opacity(reduceMotion ? 0.70 : 0.86)
+
+                shape
+                    .inset(by: 2.7)
+                    .stroke(gradient, style: StrokeStyle(lineWidth: 1.6 + pulse * 0.65, lineCap: .round, lineJoin: .round))
+                    .opacity(reduceMotion ? 0.14 : 0.08 + pulse * 0.12)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private var baseStroke: Color {
+        colorScheme == .light
+            ? Color.white.opacity(0.72)
+            : Color.white.opacity(0.16)
+    }
+
+    private func motionMetrics(at date: Date) -> (angle: Angle, pulse: CGFloat) {
+        let seconds = date.timeIntervalSinceReferenceDate
+        let flowProgress = seconds.truncatingRemainder(dividingBy: 4.8) / 4.8
+        let pulseProgress = (sin(seconds * Double.pi * 2 / 1.65) + 1) / 2
+
+        return (
+            angle: .degrees(flowProgress * 360),
+            pulse: CGFloat(pulseProgress)
+        )
+    }
+
+    private func flowGradient(angle: Angle) -> AngularGradient {
+        AngularGradient(
+            colors: [
+                Color(red: 0.071, green: 0.851, blue: 1.000).opacity(0.95),
+                Color(red: 0.125, green: 0.788, blue: 1.000).opacity(0.92),
+                Color(red: 0.184, green: 0.490, blue: 1.000).opacity(0.98),
+                Color(red: 0.435, green: 0.525, blue: 1.000).opacity(0.92),
+                Color(red: 0.616, green: 0.467, blue: 1.000).opacity(0.88),
+                Color(red: 0.835, green: 0.396, blue: 0.910).opacity(0.90),
+                Color(red: 1.000, green: 0.310, blue: 0.741).opacity(0.92),
+                Color(red: 1.000, green: 0.557, blue: 0.788).opacity(0.82),
+                Color(red: 1.000, green: 0.902, blue: 0.427).opacity(0.82),
+                Color(red: 0.812, green: 1.000, blue: 0.459).opacity(0.80),
+                Color(red: 0.471, green: 1.000, blue: 0.549).opacity(0.86),
+                Color(red: 0.071, green: 0.851, blue: 1.000).opacity(0.95)
+            ],
+            center: .center,
+            angle: angle
+        )
     }
 }
 

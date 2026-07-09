@@ -26,6 +26,19 @@ enum SidebarMode: String, CaseIterable, Identifiable {
             return "大纲"
         }
     }
+
+    var toggled: SidebarMode {
+        switch self {
+        case .notes:
+            return .outline
+        case .outline:
+            return .notes
+        }
+    }
+
+    var toggleHelp: String {
+        "切换到\(toggled.help)"
+    }
 }
 
 struct SidebarView: View {
@@ -181,16 +194,14 @@ struct SidebarView: View {
 
             Spacer()
 
-            Picker("侧边栏模式", selection: $mode) {
-                ForEach(SidebarMode.allCases) { mode in
-                    Image(systemName: mode.systemImage)
-                        .tag(mode)
-                        .help(mode.help)
-                }
+            Button {
+                mode = mode.toggled
+            } label: {
+                Image(systemName: mode.toggled.systemImage)
+                    .font(.system(size: 13, weight: .semibold))
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: 78)
+            .buttonStyle(IconButtonStyle())
+            .help(mode.toggleHelp)
         }
     }
 

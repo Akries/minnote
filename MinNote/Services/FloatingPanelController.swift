@@ -3,15 +3,10 @@ import SwiftUI
 
 @MainActor
 final class FloatingPanelController: NSObject, NSWindowDelegate {
-    private static let edgeSnapThreshold: CGFloat = 84
-    private static let edgeSnapDelayNanoseconds: UInt64 = 120_000_000
-
     private let store: NoteStore
     private let settings: AppSettings
     private var panel: FloatingNotePanel?
     private var localKeyMonitor: Any?
-    private var pendingEdgeSnapTask: Task<Void, Never>?
-    private var isApplyingPlacement = false
 
     init(store: NoteStore, settings: AppSettings) {
         self.store = store
@@ -38,7 +33,6 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
 
     func hide() {
         store.flushPendingSave()
-        cancelPendingEdgeSnap()
         panel?.orderOut(nil)
         removeLocalKeyMonitor()
     }
@@ -115,8 +109,6 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
     }
 
     private func placePanel(_ panel: NSPanel, sidebarCollapsed: Bool? = nil) {
-        cancelPendingEdgeSnap()
-
         guard let screen = screen(for: panel) else {
             panel.center()
             return
@@ -132,10 +124,8 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0
             context.allowsImplicitAnimation = false
-            isApplyingPlacement = true
             panel.disableScreenUpdatesUntilFlush()
             panel.setFrame(frame, display: true, animate: false)
-            isApplyingPlacement = false
         }
     }
 
@@ -182,71 +172,6 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
         return NSScreen.screens.max { lhs, rhs in
             lhs.visibleFrame.intersection(frame).area < rhs.visibleFrame.intersection(frame).area
         } ?? NSScreen.main
-    }
-
-    private func scheduleEdgeSnap(for panel: NSPanel) {
-        cancelPendingEdgeSnap()
-        pendingEdgeSnapTask = Task { @MainActor [weak self, weak panel] in
-            try? await Task.sleep(nanoseconds: Self.edgeSnapDelayNanoseconds)
-
-            guard !Task.isCancelled,
-                  let self,
-                  let panel
-            else {
-                return
-            }
-
-            self.snapPanelIfNearEdge(panel)
-        }
-    }
-
-    private func cancelPendingEdgeSnap() {
-        pendingEdgeSnapTask?.cancel()
-        pendingEdgeSnapTask = nil
-    }
-
-    private func snapPanelIfNearEdge(_ panel: NSPanel) {
-        guard !isApplyingPlacement,
-              let screen = screen(for: panel),
-              let attachment = attachmentNearEdge(for: panel)
-        else {
-            return
-        }
-
-        let targetFrame = panelFrame(for: attachment, in: screen.visibleFrame)
-        let needsPlacement = !panel.frame.isApproximatelyEqual(to: targetFrame)
-
-        if settings.attachment != attachment {
-            settings.attachment = attachment
-        }
-
-        if needsPlacement {
-            placePanel(panel)
-        }
-    }
-
-    private func attachmentNearEdge(for panel: NSPanel) -> PanelAttachment? {
-        guard let screen = screen(for: panel) else {
-            return nil
-        }
-
-        let frame = panel.frame
-        let visibleFrame = screen.visibleFrame
-        let threshold = Self.edgeSnapThreshold
-
-        if abs(frame.minX - visibleFrame.minX) <= threshold {
-            return .left
-        }
-
-        if abs(visibleFrame.maxX - frame.maxX) <= threshold {
-            return .right
-        }
-
-        if abs(frame.minY - visibleFrame.minY) <= threshold {
-            return .bottom
-        }
-
-        return nil
     }
 
     private func sidePanelWidth(in visibleFrame: NSRect, sidebarCollapsed: Bool?) -> CGFloat {
@@ -358,18 +283,6 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         store.flushPendingSave()
         removeLocalKeyMonitor()
-        cancelPendingEdgeSnap()
-    }
-
-    func windowDidMove(_ notification: Notification) {
-        guard !isApplyingPlacement,
-              let panel = notification.object as? NSPanel,
-              panel === self.panel
-        else {
-            return
-        }
-
-        scheduleEdgeSnap(for: panel)
     }
 }
 
@@ -380,12 +293,5 @@ private extension NSRect {
         }
 
         return width * height
-    }
-
-    func isApproximatelyEqual(to other: NSRect, tolerance: CGFloat = 0.5) -> Bool {
-        abs(minX - other.minX) <= tolerance
-            && abs(minY - other.minY) <= tolerance
-            && abs(width - other.width) <= tolerance
-            && abs(height - other.height) <= tolerance
     }
 }

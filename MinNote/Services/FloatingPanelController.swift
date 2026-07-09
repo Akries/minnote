@@ -329,7 +329,7 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
                 return nil
             }
 
-            if modifiers.contains(.command), event.keyCode == 51 {
+            if self.settings.deleteNoteHotKey.matches(event: event) {
                 self.store.deleteSelectedNote()
                 return nil
             }

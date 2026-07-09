@@ -46,6 +46,11 @@ struct HotKeyConfiguration: Equatable {
         modifiers: UInt32(cmdKey)
     )
 
+    static let deleteNoteDefault = HotKeyConfiguration(
+        keyCode: UInt32(kVK_Delete),
+        modifiers: UInt32(cmdKey)
+    )
+
     static func markdownDefault(for action: MarkdownFormattingAction) -> HotKeyConfiguration {
         switch action {
         case .body:

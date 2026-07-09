@@ -50,6 +50,12 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    @Published var deleteNoteHotKey: HotKeyConfiguration {
+        didSet {
+            saveDeleteNoteHotKey()
+        }
+    }
+
     @Published private var markdownFormattingHotKeys: [MarkdownFormattingAction: HotKeyConfiguration] {
         didSet {
             saveMarkdownFormattingHotKeys()
@@ -127,6 +133,8 @@ final class AppSettings: ObservableObject {
     private let previousNoteModifiersKey = "previousNoteHotKey.modifiers"
     private let nextNoteKeyCodeKey = "nextNoteHotKey.keyCode"
     private let nextNoteModifiersKey = "nextNoteHotKey.modifiers"
+    private let deleteNoteKeyCodeKey = "deleteNoteHotKey.keyCode"
+    private let deleteNoteModifiersKey = "deleteNoteHotKey.modifiers"
     private let markdownFormattingKeyPrefix = "markdownFormattingHotKey"
     private let attachmentKey = "panel.attachment"
     private let storageDirectoryPathKey = "storage.directoryPath"
@@ -210,6 +218,14 @@ final class AppSettings: ObservableObject {
             let keyCode = UInt32(userDefaults.integer(forKey: nextNoteKeyCodeKey))
             let modifiers = UInt32(userDefaults.integer(forKey: nextNoteModifiersKey))
             self.nextNoteHotKey = HotKeyConfiguration(keyCode: keyCode, modifiers: modifiers)
+        }
+
+        if userDefaults.object(forKey: deleteNoteKeyCodeKey) == nil {
+            self.deleteNoteHotKey = .deleteNoteDefault
+        } else {
+            let keyCode = UInt32(userDefaults.integer(forKey: deleteNoteKeyCodeKey))
+            let modifiers = UInt32(userDefaults.integer(forKey: deleteNoteModifiersKey))
+            self.deleteNoteHotKey = HotKeyConfiguration(keyCode: keyCode, modifiers: modifiers)
         }
 
         var markdownFormattingHotKeys: [MarkdownFormattingAction: HotKeyConfiguration] = [:]
@@ -320,6 +336,10 @@ final class AppSettings: ObservableObject {
         nextNoteHotKey = .nextNoteDefault
     }
 
+    func resetDeleteNoteHotKey() {
+        deleteNoteHotKey = .deleteNoteDefault
+    }
+
     func markdownFormattingHotKey(for action: MarkdownFormattingAction) -> HotKeyConfiguration {
         markdownFormattingHotKeys[action] ?? .markdownDefault(for: action)
     }
@@ -375,6 +395,11 @@ final class AppSettings: ObservableObject {
     private func saveNextNoteHotKey() {
         userDefaults.set(Int(nextNoteHotKey.keyCode), forKey: nextNoteKeyCodeKey)
         userDefaults.set(Int(nextNoteHotKey.modifiers), forKey: nextNoteModifiersKey)
+    }
+
+    private func saveDeleteNoteHotKey() {
+        userDefaults.set(Int(deleteNoteHotKey.keyCode), forKey: deleteNoteKeyCodeKey)
+        userDefaults.set(Int(deleteNoteHotKey.modifiers), forKey: deleteNoteModifiersKey)
     }
 
     private func saveMarkdownFormattingHotKeys() {

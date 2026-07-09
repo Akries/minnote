@@ -152,7 +152,6 @@ struct NoteEditorView: View {
             .buttonStyle(IconButtonStyle())
             .disabled(note == nil)
             .help("删除当前笔记")
-            .keyboardShortcut(.delete, modifiers: [.command])
 
             Button {
                 store.createNote()

@@ -203,6 +203,13 @@ struct SettingsView: View {
                 ) {
                     settings.resetNextNoteHotKey()
                 }
+
+                SettingsShortcutRow(
+                    title: "删除笔记",
+                    configuration: $settings.deleteNoteHotKey
+                ) {
+                    settings.resetDeleteNoteHotKey()
+                }
             }
 
             Section {

@@ -44,7 +44,7 @@ struct SidebarView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.openSettings) private var openSettings
     @State private var collapsedH1IDs: Set<String> = []
-    private let trafficLightContentInset: CGFloat = 62
+    private let trafficLightContentInset: CGFloat = 72
 
     var body: some View {
         VStack(spacing: 12) {
@@ -181,17 +181,21 @@ struct SidebarView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Image(systemName: "signature")
-                .font(.system(size: 17, weight: .semibold))
-                .symbolRenderingMode(.palette)
-                .foregroundStyle(.primary, Color.accentColor)
-                .frame(width: 18)
+            HStack(spacing: 6) {
+                Image(systemName: "note.text")
+                    .font(.system(size: 14, weight: .semibold))
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.secondary, Color.accentColor)
+                    .frame(width: 18)
 
-            Text("MinNote")
-                .font(.system(size: 15, weight: .semibold))
-                .lineLimit(1)
-
-            Spacer()
+                Text("MinNote")
+                    .font(.system(size: 14, weight: .semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+                    .truncationMode(.tail)
+            }
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+            .layoutPriority(1)
 
             Button {
                 mode = mode.toggled
@@ -200,8 +204,10 @@ struct SidebarView: View {
                     .font(.system(size: 13, weight: .semibold))
             }
             .buttonStyle(IconButtonStyle(buttonStyle: settings.buttonStyle, visualTheme: settings.visualTheme))
+            .fixedSize()
         }
         .padding(.leading, trafficLightContentInset)
+        .frame(height: 30)
     }
 
     private var searchField: some View {

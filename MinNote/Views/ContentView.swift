@@ -14,6 +14,8 @@ struct ContentView: View {
     @State private var outlineNavigationTarget: NoteOutlineNavigationTarget?
     @State private var editorSelectionLocation = 0
     @AppStorage("sidebarCollapsed") private var sidebarCollapsed = true
+    private let expandedSidebarWidth: CGFloat = 236
+    private let sidebarAnimation: Animation = .spring(response: 0.34, dampingFraction: 0.88)
 
     private var filteredNotes: [PlainNote] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -74,11 +76,14 @@ struct ContentView: View {
                     ) { item in
                         outlineNavigationTarget = NoteOutlineNavigationTarget(location: item.location)
                     }
-                    .frame(width: 210)
+                    .frame(width: expandedSidebarWidth)
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+                    .zIndex(1)
 
                     Rectangle()
                         .fill(sidebarDividerColor)
                         .frame(width: 1)
+                        .transition(.opacity)
                 }
 
                 NoteEditorView(
@@ -94,15 +99,13 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .ignoresSafeArea(.container, edges: .top)
+            .animation(sidebarAnimation, value: sidebarCollapsed)
 
             WindowTrafficLightControls()
                 .padding(.leading, 18)
                 .padding(.top, 14)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .zIndex(10)
-        }
-        .transaction { transaction in
-            transaction.animation = nil
         }
         .onReceive(NotificationCenter.default.publisher(for: .toggleSidebar)) { _ in
             setSidebarCollapsed(!sidebarCollapsed)
@@ -236,13 +239,10 @@ struct ContentView: View {
             return
         }
 
-        var transaction = Transaction()
-        transaction.animation = nil
-
-        onSidebarChange(collapsed)
-        withTransaction(transaction) {
+        withAnimation(sidebarAnimation) {
             sidebarCollapsed = collapsed
         }
+        onSidebarChange(collapsed)
     }
 
     private func toggleSidebarMode() {

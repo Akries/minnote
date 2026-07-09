@@ -50,7 +50,7 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
             return
         }
 
-        placePanel(panel, sidebarCollapsed: sidebarCollapsed)
+        placePanel(panel, sidebarCollapsed: sidebarCollapsed, animated: true)
     }
 
     private func makePanel() -> FloatingNotePanel {
@@ -102,7 +102,11 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
         return panel
     }
 
-    private func placePanel(_ panel: NSPanel, sidebarCollapsed: Bool? = nil) {
+    private func placePanel(
+        _ panel: NSPanel,
+        sidebarCollapsed: Bool? = nil,
+        animated: Bool = false
+    ) {
         guard let screen = screen(for: panel) else {
             panel.center()
             return
@@ -115,9 +119,13 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
             sidebarCollapsed: sidebarCollapsed
         )
 
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0
-            context.allowsImplicitAnimation = false
+        if animated {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.24
+                context.allowsImplicitAnimation = true
+                panel.setFrame(frame, display: true, animate: true)
+            }
+        } else {
             panel.disableScreenUpdatesUntilFlush()
             panel.setFrame(frame, display: true, animate: false)
         }
@@ -176,7 +184,7 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
             return collapsedWidth
         }
 
-        return min(visibleFrame.width * 0.55, max(520, collapsedWidth + 210))
+        return min(visibleFrame.width * 0.55, max(520, collapsedWidth + 236))
     }
 
     private func installLocalKeyMonitor() {

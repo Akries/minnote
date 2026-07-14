@@ -9,6 +9,7 @@ CONFIGURATION="Debug"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DERIVED_DATA="$ROOT_DIR/build/DerivedData"
 APP_BUNDLE="$DERIVED_DATA/Build/Products/$CONFIGURATION/$APP_NAME.app"
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister"
 
 cd "$ROOT_DIR"
 
@@ -29,12 +30,17 @@ build_app() {
     build
 }
 
+unregister_build_product() {
+  "$LSREGISTER" -u "$APP_BUNDLE" >/dev/null 2>&1 || true
+}
+
 open_app() {
-  /usr/bin/open -n "$APP_BUNDLE"
+  "$APP_BUNDLE/Contents/MacOS/$APP_NAME" >/dev/null 2>&1 &
 }
 
 stop_app
 build_app
+unregister_build_product
 
 case "$MODE" in
   run)

@@ -7,6 +7,7 @@ DIST_DIR="$ROOT_DIR/dist"
 DERIVED_DATA_DIR="$ROOT_DIR/build/DerivedData"
 CONFIGURATION="${CONFIGURATION:-Release}"
 SIGNING_IDENTITY="${SIGNING_IDENTITY:--}"
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister"
 
 mkdir -p "$DIST_DIR"
 
@@ -21,19 +22,21 @@ xcodebuild \
   build
 
 APP_PATH="$DERIVED_DATA_DIR/Build/Products/$CONFIGURATION/$APP_NAME.app"
-DIST_APP="$DIST_DIR/$APP_NAME.app"
 DMG_PATH="$DIST_DIR/$APP_NAME.dmg"
 
-rm -rf "$DIST_APP" "$DMG_PATH"
-cp -R "$APP_PATH" "$DIST_APP"
+rm -f "$DMG_PATH"
 
-codesign --verify --deep --strict --verbose=2 "$DIST_APP"
+codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
 hdiutil create \
   -volname "$APP_NAME" \
-  -srcfolder "$DIST_APP" \
+  -srcfolder "$APP_PATH" \
   -ov \
   -format UDZO \
   "$DMG_PATH"
+
+# Xcode registers its derived app with LaunchServices during every build.
+# It is only a packaging input, so unregister it to keep Launchpad clean.
+"$LSREGISTER" -u "$APP_PATH" >/dev/null 2>&1 || true
 
 echo "Created $DMG_PATH"

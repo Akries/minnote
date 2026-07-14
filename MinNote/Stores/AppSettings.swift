@@ -101,7 +101,12 @@ final class AppSettings: ObservableObject {
     @Published var visualTheme: AppVisualTheme {
         didSet {
             saveVisualTheme()
-            applyDefaultButtonStyleForTheme()
+            // A theme supplies the initial button treatment, but an explicit
+            // button-style choice is an override and must survive later theme
+            // changes.
+            if !userDefaults.bool(forKey: buttonStyleCustomizedKey) {
+                applyDefaultButtonStyleForTheme()
+            }
         }
     }
 

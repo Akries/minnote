@@ -408,51 +408,36 @@ struct NoteEditorView: View {
     }
 
     private var editorSurfaceWithSearch: some View {
-        Group {
-            if !isTopToolbarVisible {
-                VStack(spacing: 0) {
-                    inlineEditorSearchPanel
-
-                    editorSurface
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .transaction { transaction in
-                            transaction.animation = nil
-                            transaction.disablesAnimations = true
-                        }
-                }
-            } else {
-                editorSurface
-                    .overlay(alignment: editorSearchPanelAlignment) {
-                        if editorSearchPresented {
-                            editorSearchPanel
-                                .padding(.horizontal, FloatingChromeMetrics.horizontalPadding)
-                                .padding(.top, editorSearchPanelTopPadding)
-                                .padding(.bottom, editorSearchPanelBottomPadding)
-                                .transition(.move(edge: editorSearchPanelEdge).combined(with: .opacity))
-                        }
+        editorSurface
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .transaction { transaction in
+                transaction.animation = nil
+                transaction.disablesAnimations = true
+            }
+            .overlay(alignment: editorSearchPanelAlignment) {
+                if editorSearchPresented {
+                    editorSearchPanel
+                        .padding(.horizontal, FloatingChromeMetrics.horizontalPadding)
+                        .padding(.top, editorSearchPanelTopPadding)
+                        .padding(.bottom, editorSearchPanelBottomPadding)
+                        .transition(.move(edge: editorSearchPanelEdge).combined(with: .opacity))
                 }
             }
-        }
-    }
-
-    private var inlineEditorSearchPanel: some View {
-        ZStack(alignment: .top) {
-            if editorSearchPresented {
-                editorSearchPanel
-                    .padding(.horizontal, FloatingChromeMetrics.horizontalPadding)
-                    .padding(.top, editorSearchPanelTopPadding)
-                    .padding(.bottom, 8)
-            }
-        }
-        .frame(
-            height: editorSearchPresented ? editorSearchInlineReservedHeight : 0,
-            alignment: .top
-        )
-        .clipped()
     }
 
     private var editorSearchInlineReservedHeight: CGFloat {
         editorSearchMode == .replace ? 95 : 62
+    }
+
+    private var editorTextVerticalInset: CGFloat {
+        guard editorSearchPresented, !isTopToolbarVisible else {
+            return EditorTextMetrics.verticalInset
+        }
+
+        // Keep the AppKit scroll view behind the search chrome. Reserving the
+        // space in the text container, rather than inserting a separate SwiftUI
+        // row, removes the visible seam between search and editor content.
+        return EditorTextMetrics.verticalInset + editorSearchInlineReservedHeight
     }
 
     private var editorSearchPanelAlignment: Alignment {
@@ -652,6 +637,7 @@ struct NoteEditorView: View {
                     noteID: note?.id,
                     text: store.selectedText,
                     focusToken: editorFocusToken,
+                    verticalInset: editorTextVerticalInset,
                     onTextChange: handleEditorTextChange,
                     onPlaceholderVisibilityChange: handlePlaceholderVisibilityChange,
                     onSelectionLocationChange: { location in
@@ -662,7 +648,9 @@ struct NoteEditorView: View {
                         if activeTextView !== textView {
                             activeTextView = textView
                         }
-                        refreshEditorSearchHighlights(in: textView)
+                        if editorSearchPresented {
+                            refreshEditorSearchHighlights(in: textView)
+                        }
                     }
                 )
 
@@ -797,7 +785,10 @@ struct NoteEditorView: View {
             ForEach(MarkdownFormattingAction.rows.indices, id: \.self) { rowIndex in
                 HStack(spacing: 5) {
                     ForEach(MarkdownFormattingAction.rows[rowIndex]) { action in
-                        MarkdownToolbarActionButton(action: action) {
+                        MarkdownToolbarActionButton(
+                            action: action,
+                            visualTheme: settings.visualTheme
+                        ) {
                             applyMarkdownFormatting(action)
                         }
                     }
@@ -1060,6 +1051,18 @@ struct NoteEditorView: View {
     }
 
     private func updateEditorSearchMatchState() {
+        guard editorSearchPresented else {
+            if editorSearchMatchCount != 0 {
+                editorSearchMatchCount = 0
+            }
+
+            if editorSearchCurrentMatchIndex != 0 {
+                editorSearchCurrentMatchIndex = 0
+            }
+
+            return
+        }
+
         guard let activeTextView,
               activeTextView.window != nil
         else {
@@ -1103,11 +1106,13 @@ struct NoteEditorView: View {
             return
         }
 
+        guard editorSearchPresented else {
+            return
+        }
+
         clearEditorSearchHighlights(in: textView)
 
-        guard editorSearchPresented,
-              !editorSearchQuery.isEmpty
-        else {
+        guard !editorSearchQuery.isEmpty else {
             return
         }
 
@@ -1448,6 +1453,7 @@ private struct TagPickerRow: View {
 
 private struct MarkdownToolbarActionButton: View {
     let action: MarkdownFormattingAction
+    let visualTheme: AppVisualTheme
     let onTap: () -> Void
 
     var body: some View {
@@ -1459,17 +1465,35 @@ private struct MarkdownToolbarActionButton: View {
                 .frame(height: 24)
                 .frame(maxWidth: .infinity)
                 .background {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(Color.primary.opacity(0.055))
-                }
-                .overlay {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .stroke(.primary.opacity(0.06), lineWidth: 1)
+                    buttonBackground
                 }
         }
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity)
         .help(action.help)
+    }
+
+    @ViewBuilder
+    private var buttonBackground: some View {
+        let shape = RoundedRectangle(cornerRadius: 7, style: .continuous)
+
+        if visualTheme == .glass {
+            if #available(macOS 26.0, *) {
+                shape
+                    .fill(.clear)
+                    .glassEffect(.regular.interactive(), in: shape)
+            } else {
+                shape
+                    .fill(.regularMaterial)
+            }
+        } else {
+            shape
+                .fill(Color.primary.opacity(0.055))
+                .overlay {
+                    shape
+                        .stroke(.primary.opacity(0.06), lineWidth: 1)
+                }
+        }
     }
 }
 
@@ -1505,6 +1529,7 @@ private struct MarkdownTextEditor: NSViewRepresentable {
     let noteID: UUID?
     let text: String
     let focusToken: Int
+    let verticalInset: CGFloat
     let onTextChange: (String) -> Void
     let onPlaceholderVisibilityChange: (Bool) -> Void
     let onSelectionLocationChange: (Int) -> Void
@@ -1535,7 +1560,7 @@ private struct MarkdownTextEditor: NSViewRepresentable {
         textView.drawsBackground = false
         textView.textContainerInset = NSSize(
             width: EditorTextMetrics.horizontalInset,
-            height: EditorTextMetrics.verticalInset
+            height: verticalInset
         )
         textView.isHorizontallyResizable = false
         textView.isVerticallyResizable = true
@@ -1548,7 +1573,7 @@ private struct MarkdownTextEditor: NSViewRepresentable {
             height: CGFloat.greatestFiniteMagnitude
         )
         textView.textContainer?.lineFragmentPadding = 0
-        configure(textView)
+        configureInitialTextView(textView)
         context.coordinator.representedNoteID = noteID
 
         scrollView.documentView = textView
@@ -1570,7 +1595,7 @@ private struct MarkdownTextEditor: NSViewRepresentable {
             return
         }
 
-        configure(textView)
+        updateTextContainerInset(for: textView)
 
         if context.coordinator.representedNoteID != noteID {
             context.coordinator.representedNoteID = noteID
@@ -1592,7 +1617,7 @@ private struct MarkdownTextEditor: NSViewRepresentable {
         }
     }
 
-    private func configure(_ textView: NSTextView) {
+    private func configureInitialTextView(_ textView: NSTextView) {
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineSpacing = EditorTextMetrics.lineSpacing
 
@@ -1605,6 +1630,22 @@ private struct MarkdownTextEditor: NSViewRepresentable {
             .foregroundColor: NSColor.labelColor,
             .paragraphStyle: paragraphStyle
         ]
+        updateTextContainerInset(for: textView)
+    }
+
+    private func updateTextContainerInset(for textView: NSTextView) {
+        let targetInset = NSSize(
+            width: EditorTextMetrics.horizontalInset,
+            height: verticalInset
+        )
+
+        guard textView.textContainerInset.width != targetInset.width
+            || textView.textContainerInset.height != targetInset.height
+        else {
+            return
+        }
+
+        textView.textContainerInset = targetInset
     }
 
     private func isPlaceholderVisible(for textView: NSTextView) -> Bool {

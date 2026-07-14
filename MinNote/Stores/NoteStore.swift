@@ -14,6 +14,8 @@ final class NoteStore: ObservableObject {
     private var draftTextByNoteID: [UUID: String] = [:]
     private var draftUpdatedAtByNoteID: [UUID: Date] = [:]
     private var draftFormatByNoteID: [UUID: NoteFormat] = [:]
+    private var pendingDraftMetadataPublishWorkItem: DispatchWorkItem?
+    private let draftMetadataPublishDelay: TimeInterval = 0.16
 
     init(settings: AppSettings, fileManager: FileManager = .default) {
         self.settings = settings
@@ -92,15 +94,23 @@ final class NoteStore: ObservableObject {
         draftUpdatedAtByNoteID[selectedNoteID] = updatedAt
         draftFormatByNoteID[selectedNoteID] = targetFormat
         enqueueRealtimeWrite(text, to: realtimeWriteURL(for: notes[index], format: targetFormat))
-        publishDraftMetadata(
-            noteID: selectedNoteID,
-            text: text,
-            updatedAt: updatedAt,
-            format: targetFormat
-        )
 
         if publishImmediately {
+            cancelPendingDraftMetadataPublish()
+            publishDraftMetadata(
+                noteID: selectedNoteID,
+                text: text,
+                updatedAt: updatedAt,
+                format: targetFormat
+            )
             flushPendingSave()
+        } else {
+            scheduleDraftMetadataPublish(
+                noteID: selectedNoteID,
+                text: text,
+                updatedAt: updatedAt,
+                format: targetFormat
+            )
         }
     }
 
@@ -166,6 +176,7 @@ final class NoteStore: ObservableObject {
     }
 
     func flushPendingSave() {
+        cancelPendingDraftMetadataPublish()
         saveQueue.sync {}
         commitDraftsToPublishedNotes(shouldSort: true)
     }
@@ -222,6 +233,42 @@ final class NoteStore: ObservableObject {
             notes.sort { $0.updatedAt > $1.updatedAt }
             selectedNoteID = currentSelection
         }
+    }
+
+    private func scheduleDraftMetadataPublish(
+        noteID: UUID,
+        text: String,
+        updatedAt: Date,
+        format: NoteFormat
+    ) {
+        cancelPendingDraftMetadataPublish()
+
+        let workItem = DispatchWorkItem { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else {
+                    return
+                }
+
+                self.pendingDraftMetadataPublishWorkItem = nil
+                self.publishDraftMetadata(
+                    noteID: noteID,
+                    text: text,
+                    updatedAt: updatedAt,
+                    format: format
+                )
+            }
+        }
+
+        pendingDraftMetadataPublishWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + draftMetadataPublishDelay,
+            execute: workItem
+        )
+    }
+
+    private func cancelPendingDraftMetadataPublish() {
+        pendingDraftMetadataPublishWorkItem?.cancel()
+        pendingDraftMetadataPublishWorkItem = nil
     }
 
     private func publishDraftMetadata(

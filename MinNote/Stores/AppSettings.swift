@@ -20,6 +20,12 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    @Published var editorSearchHotKey: HotKeyConfiguration {
+        didSet {
+            saveEditorSearchHotKey()
+        }
+    }
+
     @Published var markdownPreviewHotKey: HotKeyConfiguration {
         didSet {
             saveMarkdownPreviewHotKey()
@@ -95,7 +101,12 @@ final class AppSettings: ObservableObject {
     @Published var visualTheme: AppVisualTheme {
         didSet {
             saveVisualTheme()
-            applyDefaultButtonStyleForTheme()
+            // A theme supplies the initial button treatment, but an explicit
+            // button-style choice is an override and must survive later theme
+            // changes.
+            if !userDefaults.bool(forKey: buttonStyleCustomizedKey) {
+                applyDefaultButtonStyleForTheme()
+            }
         }
     }
 
@@ -137,6 +148,8 @@ final class AppSettings: ObservableObject {
     private let sidebarModifiersKey = "sidebarHotKey.modifiers"
     private let sidebarModeKeyCodeKey = "sidebarModeHotKey.keyCode"
     private let sidebarModeModifiersKey = "sidebarModeHotKey.modifiers"
+    private let editorSearchKeyCodeKey = "editorSearchHotKey.keyCode"
+    private let editorSearchModifiersKey = "editorSearchHotKey.modifiers"
     private let markdownPreviewKeyCodeKey = "markdownPreviewHotKey.keyCode"
     private let markdownPreviewModifiersKey = "markdownPreviewHotKey.modifiers"
     private let markdownToolbarKeyCodeKey = "markdownToolbarHotKey.keyCode"
@@ -196,6 +209,14 @@ final class AppSettings: ObservableObject {
             let keyCode = UInt32(userDefaults.integer(forKey: sidebarModeKeyCodeKey))
             let modifiers = UInt32(userDefaults.integer(forKey: sidebarModeModifiersKey))
             self.sidebarModeHotKey = HotKeyConfiguration(keyCode: keyCode, modifiers: modifiers)
+        }
+
+        if userDefaults.object(forKey: editorSearchKeyCodeKey) == nil {
+            self.editorSearchHotKey = .editorSearchDefault
+        } else {
+            let keyCode = UInt32(userDefaults.integer(forKey: editorSearchKeyCodeKey))
+            let modifiers = UInt32(userDefaults.integer(forKey: editorSearchModifiersKey))
+            self.editorSearchHotKey = HotKeyConfiguration(keyCode: keyCode, modifiers: modifiers)
         }
 
         if userDefaults.object(forKey: markdownPreviewKeyCodeKey) == nil {
@@ -352,6 +373,10 @@ final class AppSettings: ObservableObject {
         sidebarModeHotKey = .sidebarModeDefault
     }
 
+    func resetEditorSearchHotKey() {
+        editorSearchHotKey = .editorSearchDefault
+    }
+
     func resetMarkdownPreviewHotKey() {
         markdownPreviewHotKey = .markdownPreviewDefault
     }
@@ -415,6 +440,11 @@ final class AppSettings: ObservableObject {
     private func saveSidebarModeHotKey() {
         userDefaults.set(Int(sidebarModeHotKey.keyCode), forKey: sidebarModeKeyCodeKey)
         userDefaults.set(Int(sidebarModeHotKey.modifiers), forKey: sidebarModeModifiersKey)
+    }
+
+    private func saveEditorSearchHotKey() {
+        userDefaults.set(Int(editorSearchHotKey.keyCode), forKey: editorSearchKeyCodeKey)
+        userDefaults.set(Int(editorSearchHotKey.modifiers), forKey: editorSearchModifiersKey)
     }
 
     private func saveMarkdownPreviewHotKey() {

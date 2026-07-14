@@ -44,7 +44,6 @@ struct SidebarView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.openSettings) private var openSettings
     @State private var collapsedH1IDs: Set<String> = []
-    private let trafficLightContentInset: CGFloat = 72
 
     var body: some View {
         VStack(spacing: 12) {
@@ -182,10 +181,10 @@ struct SidebarView: View {
     private var header: some View {
         HStack(spacing: 8) {
             HStack(spacing: 6) {
-                Image(systemName: "note.text")
-                    .font(.system(size: 14, weight: .semibold))
+                Image(systemName: "signature")
+                    .font(.system(size: 17, weight: .semibold))
                     .symbolRenderingMode(.palette)
-                    .foregroundStyle(.secondary, Color.accentColor)
+                    .foregroundStyle(.primary, Color.accentColor)
                     .frame(width: 18)
 
                 Text("MinNote")
@@ -206,7 +205,6 @@ struct SidebarView: View {
             .buttonStyle(IconButtonStyle(buttonStyle: settings.buttonStyle, visualTheme: settings.visualTheme))
             .fixedSize()
         }
-        .padding(.leading, trafficLightContentInset)
         .frame(height: 30)
     }
 

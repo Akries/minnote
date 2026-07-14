@@ -179,6 +179,13 @@ struct SettingsView: View {
                 }
 
                 SettingsShortcutRow(
+                    title: "编辑区搜索",
+                    configuration: $settings.editorSearchHotKey
+                ) {
+                    settings.resetEditorSearchHotKey()
+                }
+
+                SettingsShortcutRow(
                     title: "预览/编辑",
                     configuration: $settings.markdownPreviewHotKey
                 ) {

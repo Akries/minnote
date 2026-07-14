@@ -21,6 +21,11 @@ struct HotKeyConfiguration: Equatable {
         modifiers: UInt32(cmdKey)
     )
 
+    static let editorSearchDefault = HotKeyConfiguration(
+        keyCode: UInt32(kVK_ANSI_F),
+        modifiers: UInt32(cmdKey)
+    )
+
     static let markdownPreviewDefault = HotKeyConfiguration(
         keyCode: UInt32(kVK_ANSI_Slash),
         modifiers: UInt32(cmdKey)

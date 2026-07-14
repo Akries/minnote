@@ -1,6 +1,34 @@
 import AppKit
 import SwiftUI
 
+private enum EditorSearchMode: String, CaseIterable, Identifiable {
+    case find
+    case replace
+
+    var id: String {
+        rawValue
+    }
+
+    var title: String {
+        switch self {
+        case .find:
+            return "查找"
+        case .replace:
+            return "替换"
+        }
+    }
+}
+
+private enum EditorSearchField: Hashable {
+    case query
+    case replacement
+}
+
+private enum EditorSearchDirection {
+    case previous
+    case next
+}
+
 struct NoteEditorView: View {
     @ObservedObject var store: NoteStore
     @ObservedObject var settings: AppSettings
@@ -19,6 +47,13 @@ struct NoteEditorView: View {
     @State private var previewText = ""
     @State private var isPlaceholderVisible = true
     @State private var editorMoreMenuPresented = false
+    @State private var editorSearchPresented = false
+    @State private var editorSearchMode: EditorSearchMode = .find
+    @State private var editorSearchQuery = ""
+    @State private var editorReplacementText = ""
+    @State private var editorSearchMatchCount = 0
+    @State private var editorSearchCurrentMatchIndex = 0
+    @FocusState private var focusedEditorSearchField: EditorSearchField?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -33,7 +68,14 @@ struct NoteEditorView: View {
         }
         .onChange(of: store.selectedNoteID) { _, _ in
             syncEditorSnapshotFromStore()
+            updateEditorSearchMatchState()
             focusEditor()
+        }
+        .onChange(of: editorSearchQuery) { _, _ in
+            updateEditorSearchMatchState()
+        }
+        .onChange(of: colorScheme) { _, _ in
+            refreshEditorSearchHighlights()
         }
         .onChange(of: outlineNavigationTarget?.id) { _, _ in
             navigateToOutlineTarget(outlineNavigationTarget)
@@ -54,6 +96,9 @@ struct NoteEditorView: View {
             }
 
             markdownToolbarVisible.toggle()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleEditorSearch)) { _ in
+            toggleEditorSearch()
         }
         .onReceive(NotificationCenter.default.publisher(for: .applyMarkdownFormatting)) { notification in
             guard let rawValue = notification.object as? String,
@@ -175,8 +220,7 @@ struct NoteEditorView: View {
                 editorMoreMenuPresented = false
             }
         }
-        .padding(.leading, sidebarCollapsed ? 78 : 18)
-        .padding(.trailing, 18)
+        .padding(.horizontal, 18)
         .frame(height: 54)
         .background(headerBackground)
         .overlay(alignment: .bottom) {
@@ -337,7 +381,7 @@ struct NoteEditorView: View {
     private var editorBody: some View {
         if isBottomToolbarVisible {
             VStack(spacing: 0) {
-                editorSurface
+                editorSurfaceWithSearch
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 bottomControlArea
@@ -353,7 +397,7 @@ struct NoteEditorView: View {
                             .padding(.bottom, FloatingChromeMetrics.topToolbarBottomPadding)
                     }
 
-                    editorSurface
+                    editorSurfaceWithSearch
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
 
@@ -361,6 +405,193 @@ struct NoteEditorView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    private var editorSurfaceWithSearch: some View {
+        editorSurface
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .transaction { transaction in
+                transaction.animation = nil
+                transaction.disablesAnimations = true
+            }
+            .overlay(alignment: editorSearchPanelAlignment) {
+                if editorSearchPresented {
+                    editorSearchPanel
+                        .padding(.horizontal, FloatingChromeMetrics.horizontalPadding)
+                        .padding(.top, editorSearchPanelTopPadding)
+                        .padding(.bottom, editorSearchPanelBottomPadding)
+                        .transition(.move(edge: editorSearchPanelEdge).combined(with: .opacity))
+                }
+            }
+    }
+
+    private var editorSearchInlineReservedHeight: CGFloat {
+        editorSearchMode == .replace ? 95 : 62
+    }
+
+    private var editorTextVerticalInset: CGFloat {
+        guard editorSearchPresented, !isTopToolbarVisible else {
+            return EditorTextMetrics.verticalInset
+        }
+
+        // Keep the AppKit scroll view behind the search chrome. Reserving the
+        // space in the text container, rather than inserting a separate SwiftUI
+        // row, removes the visible seam between search and editor content.
+        return EditorTextMetrics.verticalInset + editorSearchInlineReservedHeight
+    }
+
+    private var editorSearchPanelAlignment: Alignment {
+        isTopToolbarVisible ? .bottom : .top
+    }
+
+    private var editorSearchPanelEdge: Edge {
+        isTopToolbarVisible ? .bottom : .top
+    }
+
+    private var editorSearchPanelTopPadding: CGFloat {
+        isTopToolbarVisible ? 0 : 12
+    }
+
+    private var editorSearchPanelBottomPadding: CGFloat {
+        isTopToolbarVisible ? bottomFloatingChromeHeight + 8 : 0
+    }
+
+    private var editorSearchPanel: some View {
+        VStack(spacing: 7) {
+            HStack(spacing: 8) {
+                editorSearchModeToggleButton
+
+                TextField("搜索", text: $editorSearchQuery)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12.5))
+                    .focused($focusedEditorSearchField, equals: .query)
+                    .onSubmit {
+                        findEditorSearchMatch(.next)
+                    }
+                    .padding(.horizontal, 9)
+                    .frame(height: 26)
+                    .background(editorSearchInnerBackground)
+
+                Text(editorSearchMatchSummary)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .frame(minWidth: 42, alignment: .trailing)
+
+                editorSearchIconButton(systemImage: "chevron.up", help: "上一个") {
+                    findEditorSearchMatch(.previous)
+                }
+
+                editorSearchIconButton(systemImage: "chevron.down", help: "下一个") {
+                    findEditorSearchMatch(.next)
+                }
+            }
+
+            if editorSearchMode == .replace {
+                HStack(spacing: 8) {
+                    TextField("替换为", text: $editorReplacementText)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12.5))
+                        .focused($focusedEditorSearchField, equals: .replacement)
+                        .onSubmit {
+                            replaceCurrentEditorSearchMatch()
+                        }
+                        .padding(.horizontal, 9)
+                        .frame(height: 26)
+                        .background(editorSearchInnerBackground)
+
+                    editorSearchTextButton("替换", help: "替换当前匹配") {
+                        replaceCurrentEditorSearchMatch()
+                    }
+
+                    editorSearchTextButton("全部", help: "全部替换") {
+                        replaceAllEditorSearchMatches()
+                    }
+                }
+            }
+        }
+        .padding(8)
+        .frame(maxWidth: 620)
+        .background {
+            toolbarChromeBackground
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(chromeBorderColor, lineWidth: 1)
+        }
+        .shadow(color: chromeShadowColor, radius: 9, y: 3)
+    }
+
+    private var editorSearchModeToggleButton: some View {
+        Button {
+            let nextMode: EditorSearchMode = editorSearchMode == .find ? .replace : .find
+            editorSearchMode = nextMode
+            focusedEditorSearchField = nextMode == .find ? .query : .replacement
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: editorSearchMode == .find ? "magnifyingglass" : "arrow.left.arrow.right")
+                    .font(.system(size: 10.5, weight: .semibold))
+
+                Text(editorSearchMode.title)
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .foregroundStyle(.secondary)
+            .frame(width: 66, height: 26)
+            .background(editorSearchInnerBackground)
+        }
+        .buttonStyle(.plain)
+        .help(editorSearchMode == .find ? "切换到替换" : "切换到查找")
+    }
+
+    private var editorSearchInnerBackground: some View {
+        RoundedRectangle(cornerRadius: 7, style: .continuous)
+            .fill(Color.primary.opacity(0.055))
+            .overlay {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .stroke(Color.primary.opacity(0.055), lineWidth: 1)
+            }
+    }
+
+    private var editorSearchMatchSummary: String {
+        guard !editorSearchQuery.isEmpty else {
+            return "0/0"
+        }
+
+        return "\(editorSearchCurrentMatchIndex)/\(editorSearchMatchCount)"
+    }
+
+    private func editorSearchIconButton(
+        systemImage: String,
+        help: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 26, height: 26)
+                .background(editorSearchInnerBackground)
+        }
+        .buttonStyle(.plain)
+        .disabled(editorSearchQuery.isEmpty)
+        .help(help)
+    }
+
+    private func editorSearchTextButton(
+        _ title: String,
+        help: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 42, height: 26)
+                .background(editorSearchInnerBackground)
+        }
+        .buttonStyle(.plain)
+        .disabled(editorSearchQuery.isEmpty || activeTextView == nil)
+        .help(help)
     }
 
     private var bottomControlArea: some View {
@@ -406,14 +637,19 @@ struct NoteEditorView: View {
                     noteID: note?.id,
                     text: store.selectedText,
                     focusToken: editorFocusToken,
+                    verticalInset: editorTextVerticalInset,
                     onTextChange: handleEditorTextChange,
                     onPlaceholderVisibilityChange: handlePlaceholderVisibilityChange,
                     onSelectionLocationChange: { location in
                         onSelectionLocationChange(location)
+                        updateEditorSearchMatchState()
                     },
                     onResolve: { textView in
                         if activeTextView !== textView {
                             activeTextView = textView
+                        }
+                        if editorSearchPresented {
+                            refreshEditorSearchHighlights(in: textView)
                         }
                     }
                 )
@@ -549,7 +785,10 @@ struct NoteEditorView: View {
             ForEach(MarkdownFormattingAction.rows.indices, id: \.self) { rowIndex in
                 HStack(spacing: 5) {
                     ForEach(MarkdownFormattingAction.rows[rowIndex]) { action in
-                        MarkdownToolbarActionButton(action: action) {
+                        MarkdownToolbarActionButton(
+                            action: action,
+                            visualTheme: settings.visualTheme
+                        ) {
                             applyMarkdownFormatting(action)
                         }
                     }
@@ -568,6 +807,371 @@ struct NoteEditorView: View {
                 .stroke(chromeBorderColor, lineWidth: 1)
         }
         .shadow(color: chromeShadowColor, radius: 9, y: 3)
+    }
+
+    private func toggleEditorSearch() {
+        setEditorSearchPresented(!editorSearchPresented)
+    }
+
+    private func setEditorSearchPresented(_ isPresented: Bool) {
+        guard isPresented != editorSearchPresented else {
+            if isPresented {
+                focusedEditorSearchField = .query
+            }
+            return
+        }
+
+        if isPresented {
+            if markdownPreviewEnabled {
+                setMarkdownPreviewEnabled(false)
+            }
+
+            seedEditorSearchQueryFromSelection()
+            editorSearchPresented = true
+            updateEditorSearchMatchState()
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) {
+                focusedEditorSearchField = .query
+            }
+        } else {
+            editorSearchPresented = false
+            focusedEditorSearchField = nil
+            clearEditorSearchHighlights()
+            focusEditor()
+        }
+    }
+
+    private func seedEditorSearchQueryFromSelection() {
+        guard let activeTextView,
+              activeTextView.window != nil
+        else {
+            return
+        }
+
+        let selectedRange = activeTextView.selectedRange()
+        let text = activeTextView.string as NSString
+        guard selectedRange.length > 0,
+              NSMaxRange(selectedRange) <= text.length
+        else {
+            return
+        }
+
+        let selectedText = text.substring(with: selectedRange)
+        guard !selectedText.contains("\n"),
+              selectedText.count <= 80
+        else {
+            return
+        }
+
+        editorSearchQuery = selectedText
+    }
+
+    private func findEditorSearchMatch(_ direction: EditorSearchDirection) {
+        guard !editorSearchQuery.isEmpty else {
+            updateEditorSearchMatchState()
+            return
+        }
+
+        guard let textView = resolvedSearchTextView(retrying: true) else {
+            return
+        }
+
+        let ranges = editorSearchRanges(in: textView.string)
+        guard !ranges.isEmpty,
+              let range = editorSearchTargetRange(in: ranges, selectedRange: textView.selectedRange(), direction: direction)
+        else {
+            updateEditorSearchMatchState(ranges: ranges, selectedRange: textView.selectedRange())
+            return
+        }
+
+        selectEditorSearchRange(range, in: textView, ranges: ranges)
+        focusedEditorSearchField = .query
+    }
+
+    private func replaceCurrentEditorSearchMatch() {
+        guard !editorSearchQuery.isEmpty,
+              let textView = resolvedSearchTextView(retrying: true)
+        else {
+            return
+        }
+
+        let ranges = editorSearchRanges(in: textView.string)
+        guard !ranges.isEmpty else {
+            updateEditorSearchMatchState(ranges: ranges, selectedRange: textView.selectedRange())
+            return
+        }
+
+        let selectedRange = textView.selectedRange()
+        let targetRange = ranges.first(where: { NSEqualRanges($0, selectedRange) })
+            ?? editorSearchTargetRange(in: ranges, selectedRange: selectedRange, direction: .next)
+
+        guard let targetRange else {
+            return
+        }
+
+        replaceEditorText(in: textView, range: targetRange, replacement: editorReplacementText)
+        let replacementRange = NSRange(
+            location: targetRange.location,
+            length: (editorReplacementText as NSString).length
+        )
+        textView.setSelectedRange(replacementRange)
+        textView.scrollRangeToVisible(replacementRange)
+        handleEditorTextChange(textView.string)
+        findEditorSearchMatch(.next)
+    }
+
+    private func replaceAllEditorSearchMatches() {
+        guard !editorSearchQuery.isEmpty,
+              let textView = resolvedSearchTextView(retrying: true)
+        else {
+            return
+        }
+
+        let text = textView.string
+        let ranges = editorSearchRanges(in: text)
+        guard !ranges.isEmpty else {
+            updateEditorSearchMatchState(ranges: ranges, selectedRange: textView.selectedRange())
+            return
+        }
+
+        let updatedText = text.replacingOccurrences(
+            of: editorSearchQuery,
+            with: editorReplacementText,
+            options: editorSearchCompareOptions,
+            range: text.startIndex..<text.endIndex
+        )
+        let fullRange = NSRange(location: 0, length: (text as NSString).length)
+        replaceEditorText(in: textView, range: fullRange, replacement: updatedText)
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+        handleEditorTextChange(textView.string)
+        updateEditorSearchMatchState()
+        focusedEditorSearchField = .query
+    }
+
+    private func resolvedSearchTextView(retrying shouldRetry: Bool) -> NSTextView? {
+        if markdownPreviewEnabled {
+            setMarkdownPreviewEnabled(false)
+        }
+
+        guard let activeTextView,
+              activeTextView.window != nil
+        else {
+            if shouldRetry {
+                focusEditor()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) {
+                    updateEditorSearchMatchState()
+                }
+            }
+            return nil
+        }
+
+        return activeTextView
+    }
+
+    private var editorSearchCompareOptions: String.CompareOptions {
+        [.caseInsensitive, .diacriticInsensitive]
+    }
+
+    private var editorSearchNSStringOptions: NSString.CompareOptions {
+        [.caseInsensitive, .diacriticInsensitive]
+    }
+
+    private func editorSearchRanges(in text: String) -> [NSRange] {
+        guard !editorSearchQuery.isEmpty else {
+            return []
+        }
+
+        let nsText = text as NSString
+        let queryLength = (editorSearchQuery as NSString).length
+        guard nsText.length > 0,
+              queryLength > 0
+        else {
+            return []
+        }
+
+        var ranges: [NSRange] = []
+        var searchRange = NSRange(location: 0, length: nsText.length)
+
+        while searchRange.location < nsText.length {
+            let range = nsText.range(
+                of: editorSearchQuery,
+                options: editorSearchNSStringOptions,
+                range: searchRange
+            )
+
+            guard range.location != NSNotFound,
+                  range.length > 0
+            else {
+                break
+            }
+
+            ranges.append(range)
+            let nextLocation = range.location + range.length
+            searchRange = NSRange(location: nextLocation, length: nsText.length - nextLocation)
+        }
+
+        return ranges
+    }
+
+    private func editorSearchTargetRange(
+        in ranges: [NSRange],
+        selectedRange: NSRange,
+        direction: EditorSearchDirection
+    ) -> NSRange? {
+        guard !ranges.isEmpty else {
+            return nil
+        }
+
+        switch direction {
+        case .next:
+            let startLocation = selectedRange.location + selectedRange.length
+            return ranges.first { $0.location >= startLocation } ?? ranges.first
+        case .previous:
+            return ranges.last { $0.location < selectedRange.location } ?? ranges.last
+        }
+    }
+
+    private func selectEditorSearchRange(_ range: NSRange, in textView: NSTextView, ranges: [NSRange]? = nil) {
+        textView.setSelectedRange(range)
+        textView.scrollRangeToVisible(range)
+        onSelectionLocationChange(range.location)
+        updateEditorSearchMatchState(
+            ranges: ranges ?? editorSearchRanges(in: textView.string),
+            selectedRange: range
+        )
+    }
+
+    private func replaceEditorText(in textView: NSTextView, range: NSRange, replacement: String) {
+        if textView.shouldChangeText(in: range, replacementString: replacement) {
+            textView.textStorage?.replaceCharacters(in: range, with: replacement)
+            textView.didChangeText()
+        } else {
+            textView.string = (textView.string as NSString).replacingCharacters(in: range, with: replacement)
+        }
+    }
+
+    private func updateEditorSearchMatchState() {
+        guard editorSearchPresented else {
+            if editorSearchMatchCount != 0 {
+                editorSearchMatchCount = 0
+            }
+
+            if editorSearchCurrentMatchIndex != 0 {
+                editorSearchCurrentMatchIndex = 0
+            }
+
+            return
+        }
+
+        guard let activeTextView,
+              activeTextView.window != nil
+        else {
+            editorSearchMatchCount = 0
+            editorSearchCurrentMatchIndex = 0
+            clearEditorSearchHighlights()
+            return
+        }
+
+        updateEditorSearchMatchState(
+            ranges: editorSearchRanges(in: activeTextView.string),
+            selectedRange: activeTextView.selectedRange()
+        )
+    }
+
+    private func updateEditorSearchMatchState(ranges: [NSRange], selectedRange: NSRange) {
+        editorSearchMatchCount = ranges.count
+
+        guard !ranges.isEmpty else {
+            editorSearchCurrentMatchIndex = 0
+            refreshEditorSearchHighlights(ranges: ranges)
+            return
+        }
+
+        if let selectedIndex = ranges.firstIndex(where: { NSEqualRanges($0, selectedRange) }) {
+            editorSearchCurrentMatchIndex = selectedIndex + 1
+        } else {
+            editorSearchCurrentMatchIndex = min(1, ranges.count)
+        }
+
+        refreshEditorSearchHighlights(ranges: ranges)
+    }
+
+    private func refreshEditorSearchHighlights(
+        in textView: NSTextView? = nil,
+        ranges providedRanges: [NSRange]? = nil
+    ) {
+        guard let textView = textView ?? activeTextView,
+              textView.window != nil
+        else {
+            return
+        }
+
+        guard editorSearchPresented else {
+            return
+        }
+
+        clearEditorSearchHighlights(in: textView)
+
+        guard !editorSearchQuery.isEmpty else {
+            return
+        }
+
+        let ranges = providedRanges ?? editorSearchRanges(in: textView.string)
+        guard !ranges.isEmpty,
+              let layoutManager = textView.layoutManager
+        else {
+            return
+        }
+
+        let highlightColor = editorSearchHighlightColor
+        let activeRange = textView.selectedRange()
+        for range in ranges {
+            guard NSMaxRange(range) <= (textView.string as NSString).length else {
+                continue
+            }
+
+            layoutManager.addTemporaryAttribute(
+                .backgroundColor,
+                value: NSEqualRanges(range, activeRange) ? editorSearchActiveHighlightColor : highlightColor,
+                forCharacterRange: range
+            )
+        }
+    }
+
+    private func clearEditorSearchHighlights(in textView: NSTextView? = nil) {
+        guard let textView = textView ?? activeTextView,
+              let layoutManager = textView.layoutManager
+        else {
+            return
+        }
+
+        let textLength = (textView.string as NSString).length
+        guard textLength > 0 else {
+            return
+        }
+
+        let fullRange = NSRange(location: 0, length: textLength)
+        layoutManager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: fullRange)
+    }
+
+    private var editorSearchHighlightColor: NSColor {
+        let accent = NSColor.controlAccentColor.usingColorSpace(.sRGB) ?? .controlAccentColor
+        if colorScheme == .dark {
+            let liftedAccent = accent.blended(withFraction: 0.30, of: .white) ?? accent
+            return liftedAccent.withAlphaComponent(0.42)
+        }
+
+        return accent.withAlphaComponent(0.28)
+    }
+
+    private var editorSearchActiveHighlightColor: NSColor {
+        let accent = NSColor.controlAccentColor.usingColorSpace(.sRGB) ?? .controlAccentColor
+        if colorScheme == .dark {
+            let liftedAccent = accent.blended(withFraction: 0.38, of: .white) ?? accent
+            return liftedAccent.withAlphaComponent(0.58)
+        }
+
+        return accent.withAlphaComponent(0.40)
     }
 
     private func applyMarkdownFormatting(_ action: MarkdownFormattingAction) {
@@ -640,6 +1244,7 @@ struct NoteEditorView: View {
 
     private func handleEditorTextChange(_ text: String) {
         store.updateSelectedText(text)
+        updateEditorSearchMatchState()
     }
 
     private func handlePlaceholderVisibilityChange(_ isVisible: Bool) {
@@ -848,6 +1453,7 @@ private struct TagPickerRow: View {
 
 private struct MarkdownToolbarActionButton: View {
     let action: MarkdownFormattingAction
+    let visualTheme: AppVisualTheme
     let onTap: () -> Void
 
     var body: some View {
@@ -859,17 +1465,35 @@ private struct MarkdownToolbarActionButton: View {
                 .frame(height: 24)
                 .frame(maxWidth: .infinity)
                 .background {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(Color.primary.opacity(0.055))
-                }
-                .overlay {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .stroke(.primary.opacity(0.06), lineWidth: 1)
+                    buttonBackground
                 }
         }
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity)
         .help(action.help)
+    }
+
+    @ViewBuilder
+    private var buttonBackground: some View {
+        let shape = RoundedRectangle(cornerRadius: 7, style: .continuous)
+
+        if visualTheme == .glass {
+            if #available(macOS 26.0, *) {
+                shape
+                    .fill(.clear)
+                    .glassEffect(.regular.interactive(), in: shape)
+            } else {
+                shape
+                    .fill(.regularMaterial)
+            }
+        } else {
+            shape
+                .fill(Color.primary.opacity(0.055))
+                .overlay {
+                    shape
+                        .stroke(.primary.opacity(0.06), lineWidth: 1)
+                }
+        }
     }
 }
 
@@ -905,6 +1529,7 @@ private struct MarkdownTextEditor: NSViewRepresentable {
     let noteID: UUID?
     let text: String
     let focusToken: Int
+    let verticalInset: CGFloat
     let onTextChange: (String) -> Void
     let onPlaceholderVisibilityChange: (Bool) -> Void
     let onSelectionLocationChange: (Int) -> Void
@@ -935,7 +1560,7 @@ private struct MarkdownTextEditor: NSViewRepresentable {
         textView.drawsBackground = false
         textView.textContainerInset = NSSize(
             width: EditorTextMetrics.horizontalInset,
-            height: EditorTextMetrics.verticalInset
+            height: verticalInset
         )
         textView.isHorizontallyResizable = false
         textView.isVerticallyResizable = true
@@ -948,7 +1573,7 @@ private struct MarkdownTextEditor: NSViewRepresentable {
             height: CGFloat.greatestFiniteMagnitude
         )
         textView.textContainer?.lineFragmentPadding = 0
-        configure(textView)
+        configureInitialTextView(textView)
         context.coordinator.representedNoteID = noteID
 
         scrollView.documentView = textView
@@ -970,7 +1595,7 @@ private struct MarkdownTextEditor: NSViewRepresentable {
             return
         }
 
-        configure(textView)
+        updateTextContainerInset(for: textView)
 
         if context.coordinator.representedNoteID != noteID {
             context.coordinator.representedNoteID = noteID
@@ -992,7 +1617,7 @@ private struct MarkdownTextEditor: NSViewRepresentable {
         }
     }
 
-    private func configure(_ textView: NSTextView) {
+    private func configureInitialTextView(_ textView: NSTextView) {
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineSpacing = EditorTextMetrics.lineSpacing
 
@@ -1005,6 +1630,22 @@ private struct MarkdownTextEditor: NSViewRepresentable {
             .foregroundColor: NSColor.labelColor,
             .paragraphStyle: paragraphStyle
         ]
+        updateTextContainerInset(for: textView)
+    }
+
+    private func updateTextContainerInset(for textView: NSTextView) {
+        let targetInset = NSSize(
+            width: EditorTextMetrics.horizontalInset,
+            height: verticalInset
+        )
+
+        guard textView.textContainerInset.width != targetInset.width
+            || textView.textContainerInset.height != targetInset.height
+        else {
+            return
+        }
+
+        textView.textContainerInset = targetInset
     }
 
     private func isPlaceholderVisible(for textView: NSTextView) -> Bool {

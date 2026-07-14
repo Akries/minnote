@@ -45,12 +45,12 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
         placePanel(panel)
     }
 
-    func applyPlacement(sidebarCollapsed: Bool) {
+    func applyPlacement(sidebarCollapsed: Bool, animated: Bool) {
         guard let panel else {
             return
         }
 
-        placePanel(panel, sidebarCollapsed: sidebarCollapsed, animated: true)
+        placePanel(panel, sidebarCollapsed: sidebarCollapsed, animated: animated)
     }
 
     private func makePanel() -> FloatingNotePanel {
@@ -63,10 +63,10 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
 
         panel.title = "MinNote"
         panel.isMovableByWindowBackground = true
-        panel.isFloatingPanel = false
-        panel.level = .normal
+        panel.isFloatingPanel = true
+        panel.level = .floating
         panel.hidesOnDeactivate = false
-        panel.collectionBehavior = [.managed, .fullScreenPrimary]
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenPrimary]
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = true
@@ -80,8 +80,8 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
         let rootView = ContentView(
             store: store,
             settings: settings,
-            onSidebarChange: { [weak self] sidebarCollapsed in
-                self?.applyPlacement(sidebarCollapsed: sidebarCollapsed)
+            onSidebarChange: { [weak self] sidebarCollapsed, animated in
+                self?.applyPlacement(sidebarCollapsed: sidebarCollapsed, animated: animated)
             },
             onOpenStorageLocation: { [weak self] in
                 guard let self else {
@@ -121,12 +121,11 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
 
         if animated {
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.24
+                context.duration = 0.16
                 context.allowsImplicitAnimation = true
                 panel.setFrame(frame, display: true, animate: true)
             }
         } else {
-            panel.disableScreenUpdatesUntilFlush()
             panel.setFrame(frame, display: true, animate: false)
         }
     }
@@ -179,12 +178,13 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
     private func sidePanelWidth(in visibleFrame: NSRect, sidebarCollapsed: Bool?) -> CGFloat {
         let collapsed = sidebarCollapsed ?? UserDefaults.standard.bool(forKey: "sidebarCollapsed")
         let collapsedWidth = min(420, floor(visibleFrame.width / 4))
+        let sidebarReservedWidth: CGFloat = 237
 
         guard !collapsed else {
             return collapsedWidth
         }
 
-        return min(visibleFrame.width * 0.55, max(520, collapsedWidth + 236))
+        return min(visibleFrame.width * 0.55, max(520, collapsedWidth + sidebarReservedWidth))
     }
 
     private func installLocalKeyMonitor() {
@@ -210,6 +210,11 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
 
             if modifiers.contains(.command), event.charactersIgnoringModifiers == "n" {
                 self.store.createNote()
+                return nil
+            }
+
+            if self.settings.editorSearchHotKey.matches(event: event) {
+                NotificationCenter.default.post(name: .toggleEditorSearch, object: nil)
                 return nil
             }
 

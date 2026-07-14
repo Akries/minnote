@@ -1,10 +1,9 @@
-import AppKit
 import SwiftUI
 
 struct ContentView: View {
     @ObservedObject var store: NoteStore
     @ObservedObject var settings: AppSettings
-    let onSidebarChange: (Bool) -> Void
+    let onSidebarChange: (Bool, Bool) -> Void
     let onOpenStorageLocation: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
@@ -14,8 +13,18 @@ struct ContentView: View {
     @State private var outlineNavigationTarget: NoteOutlineNavigationTarget?
     @State private var editorSelectionLocation = 0
     @AppStorage("sidebarCollapsed") private var sidebarCollapsed = true
+    @State private var sidebarSpaceReserved = !UserDefaults.standard.bool(forKey: "sidebarCollapsed")
+    @State private var sidebarTransitionID = 0
+    @State private var measuredContentSize = CGSize.zero
+    @State private var frozenEditorWidth: CGFloat?
     private let expandedSidebarWidth: CGFloat = 236
-    private let sidebarAnimation: Animation = .spring(response: 0.34, dampingFraction: 0.88)
+    private let sidebarDividerWidth: CGFloat = 1
+    private let sidebarAnimationDuration: TimeInterval = 0.16
+    private let sidebarAnimation: Animation = .easeOut(duration: 0.16)
+
+    private var sidebarReservedWidth: CGFloat {
+        expandedSidebarWidth + sidebarDividerWidth
+    }
 
     private var filteredNotes: [PlainNote] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -56,56 +65,24 @@ struct ContentView: View {
     }
 
     var body: some View {
-        ZStack {
-            windowBackground
-                .ignoresSafeArea(.container, edges: .top)
+        GeometryReader { geometry in
+            ZStack(alignment: .topLeading) {
+                windowBackground
+                    .ignoresSafeArea(.container, edges: .top)
 
-            HStack(spacing: 0) {
-                if !sidebarCollapsed {
-                    SidebarView(
-                        store: store,
-                        settings: settings,
-                        notes: filteredNotes,
-                        selectedNote: store.selectedNote,
-                        outlineItems: selectedOutlineItems,
-                        activeOutlineItemID: activeOutlineItemID,
-                        mode: $sidebarMode,
-                        searchText: $searchText,
-                        selectedTag: $selectedTag,
-                        onOpenStorageLocation: onOpenStorageLocation
-                    ) { item in
-                        outlineNavigationTarget = NoteOutlineNavigationTarget(location: item.location)
-                    }
-                    .frame(width: expandedSidebarWidth)
-                    .transition(.move(edge: .leading).combined(with: .opacity))
-                    .zIndex(1)
-
-                    Rectangle()
-                        .fill(sidebarDividerColor)
-                        .frame(width: 1)
-                        .transition(.opacity)
-                }
-
-                NoteEditorView(
-                    store: store,
-                    settings: settings,
-                    note: store.selectedNote,
-                    sidebarCollapsed: sidebarCollapsedBinding,
-                    outlineNavigationTarget: outlineNavigationTarget,
-                    onSelectionLocationChange: { location in
-                        editorSelectionLocation = location
-                    }
-                )
+                contentLayers(in: geometry.size)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .ignoresSafeArea(.container, edges: .top)
-            .animation(sidebarAnimation, value: sidebarCollapsed)
-
-            WindowTrafficLightControls()
-                .padding(.leading, 18)
-                .padding(.top, 14)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .zIndex(10)
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .clipped()
+            .onAppear {
+                measuredContentSize = geometry.size
+            }
+            .onChange(of: geometry.size) { _, newSize in
+                measuredContentSize = newSize
+            }
+        }
+        .onAppear {
+            sidebarSpaceReserved = !sidebarCollapsed
         }
         .onReceive(NotificationCenter.default.publisher(for: .toggleSidebar)) { _ in
             setSidebarCollapsed(!sidebarCollapsed)
@@ -155,6 +132,131 @@ struct ContentView: View {
                     )
                     .allowsHitTesting(false)
             }
+        }
+    }
+
+    private func contentLayers(in size: CGSize) -> some View {
+        ZStack(alignment: .topLeading) {
+            editorLayer(in: size)
+
+            if sidebarSpaceReserved {
+                sidebarLayer(in: size)
+            }
+        }
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+        .ignoresSafeArea(.container, edges: .top)
+    }
+
+    private func editorLayer(in size: CGSize) -> some View {
+        let offset = editorOffsetX(in: size)
+
+        return NoteEditorView(
+            store: store,
+            settings: settings,
+            note: store.selectedNote,
+            sidebarCollapsed: sidebarCollapsedBinding,
+            outlineNavigationTarget: outlineNavigationTarget,
+            onSelectionLocationChange: { location in
+                editorSelectionLocation = location
+            }
+        )
+        .frame(width: editorWidth(in: size), height: size.height)
+        // Move the AppKit text editor and SwiftUI chrome as one composited surface.
+        .compositingGroup()
+        .transaction { transaction in
+            transaction.animation = nil
+            transaction.disablesAnimations = true
+        }
+        .offset(x: offset)
+        .animation(editorOffsetAnimation, value: offset)
+    }
+
+    private func sidebarLayer(in size: CGSize) -> some View {
+        let hiddenOffset = hiddenSidebarOffset
+
+        return HStack(spacing: 0) {
+            SidebarView(
+                store: store,
+                settings: settings,
+                notes: filteredNotes,
+                selectedNote: store.selectedNote,
+                outlineItems: selectedOutlineItems,
+                activeOutlineItemID: activeOutlineItemID,
+                mode: $sidebarMode,
+                searchText: $searchText,
+                selectedTag: $selectedTag,
+                onOpenStorageLocation: onOpenStorageLocation
+            ) { item in
+                outlineNavigationTarget = NoteOutlineNavigationTarget(location: item.location)
+            }
+            .frame(width: expandedSidebarWidth, height: size.height)
+
+            Rectangle()
+                .fill(sidebarDividerColor)
+                .frame(width: sidebarDividerWidth, height: size.height)
+        }
+        .frame(width: sidebarReservedWidth, height: size.height, alignment: .leading)
+        .offset(
+            x: sidebarCollapsed ? hiddenOffset.width : 0,
+            y: sidebarCollapsed ? hiddenOffset.height : 0
+        )
+        .opacity(sidebarCollapsed ? 0 : 1)
+        .allowsHitTesting(!sidebarCollapsed)
+        .animation(sidebarAnimation, value: sidebarCollapsed)
+        .zIndex(settings.attachment == .right ? -1 : 1)
+    }
+
+    private func editorWidth(in size: CGSize) -> CGFloat {
+        if let frozenEditorWidth {
+            return min(frozenEditorWidth, size.width)
+        }
+
+        guard sidebarSpaceReserved else {
+            return size.width
+        }
+
+        return max(0, size.width - sidebarReservedWidth)
+    }
+
+    private func editorOffsetX(in size: CGSize) -> CGFloat {
+        if let frozenEditorWidth {
+            return max(0, size.width - frozenEditorWidth)
+        }
+
+        guard sidebarSpaceReserved else {
+            return 0
+        }
+
+        switch settings.attachment {
+        case .right:
+            return sidebarReservedWidth
+        case .left:
+            return sidebarCollapsed ? 0 : sidebarReservedWidth
+        case .bottom:
+            // Keep the editor's trailing edge fixed while the sidebar enters.
+            return sidebarReservedWidth
+        }
+    }
+
+    private var editorOffsetAnimation: Animation? {
+        guard frozenEditorWidth == nil else {
+            return nil
+        }
+
+        switch settings.attachment {
+        case .left:
+            return sidebarAnimation
+        case .right, .bottom:
+            return nil
+        }
+    }
+
+    private var hiddenSidebarOffset: CGSize {
+        switch settings.attachment {
+        case .right:
+            return CGSize(width: sidebarReservedWidth, height: 0)
+        case .left, .bottom:
+            return CGSize(width: -sidebarReservedWidth, height: 0)
         }
     }
 
@@ -239,10 +341,71 @@ struct ContentView: View {
             return
         }
 
-        withAnimation(sidebarAnimation) {
-            sidebarCollapsed = collapsed
+        sidebarTransitionID += 1
+        let transitionID = sidebarTransitionID
+        let animatesPanelFrame = beginPanelFrameTransitionIfNeeded()
+
+        if collapsed {
+            withAnimation(sidebarAnimation) {
+                sidebarCollapsed = true
+            }
+            onSidebarChange(true, animatesPanelFrame)
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + sidebarAnimationDuration) {
+                guard transitionID == sidebarTransitionID else {
+                    return
+                }
+
+                setSidebarSpaceReserved(false)
+                finishPanelFrameTransition()
+            }
+        } else {
+            setSidebarSpaceReserved(true)
+            onSidebarChange(false, animatesPanelFrame)
+
+            DispatchQueue.main.async {
+                guard transitionID == sidebarTransitionID else {
+                    return
+                }
+
+                withAnimation(sidebarAnimation) {
+                    sidebarCollapsed = false
+                }
+            }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + sidebarAnimationDuration) {
+                guard transitionID == sidebarTransitionID else {
+                    return
+                }
+
+                finishPanelFrameTransition()
+            }
         }
-        onSidebarChange(collapsed)
+    }
+
+    private func beginPanelFrameTransitionIfNeeded() -> Bool {
+        guard settings.attachment != .bottom,
+              measuredContentSize.width > 0
+        else {
+            return false
+        }
+
+        frozenEditorWidth = editorWidth(in: measuredContentSize)
+        return true
+    }
+
+    private func finishPanelFrameTransition() {
+        frozenEditorWidth = nil
+    }
+
+    private func setSidebarSpaceReserved(_ isReserved: Bool) {
+        var transaction = Transaction()
+        transaction.animation = nil
+        transaction.disablesAnimations = true
+
+        withTransaction(transaction) {
+            sidebarSpaceReserved = isReserved
+        }
     }
 
     private func toggleSidebarMode() {
@@ -263,91 +426,5 @@ struct ContentView: View {
         }
 
         store.select(firstNote)
-    }
-}
-
-private struct WindowTrafficLightControls: View {
-    @State private var window: NSWindow?
-
-    var body: some View {
-        HStack(spacing: 8) {
-            TrafficLightButton(
-                fill: Color(red: 1.000, green: 0.369, blue: 0.337),
-                stroke: Color(red: 0.720, green: 0.110, blue: 0.100),
-                symbol: "xmark",
-                accessibilityLabel: "关闭"
-            ) {
-                window?.close()
-            }
-
-            TrafficLightButton(
-                fill: Color(red: 1.000, green: 0.796, blue: 0.165),
-                stroke: Color(red: 0.740, green: 0.500, blue: 0.060),
-                symbol: "minus",
-                accessibilityLabel: "最小化"
-            ) {
-                window?.miniaturize(nil)
-            }
-
-            TrafficLightButton(
-                fill: Color(red: 0.203, green: 0.816, blue: 0.286),
-                stroke: Color(red: 0.070, green: 0.500, blue: 0.125),
-                symbol: "arrow.up.left.and.arrow.down.right",
-                accessibilityLabel: "全屏"
-            ) {
-                window?.toggleFullScreen(nil)
-            }
-        }
-        .frame(height: 16)
-        .background(WindowAccessor { window = $0 })
-    }
-}
-
-private struct TrafficLightButton: View {
-    let fill: Color
-    let stroke: Color
-    let symbol: String
-    let accessibilityLabel: String
-    let action: () -> Void
-
-    @State private var isHovering = false
-
-    var body: some View {
-        Button(action: action) {
-            ZStack {
-                Circle()
-                    .fill(fill)
-
-                Circle()
-                    .stroke(stroke.opacity(0.74), lineWidth: 0.8)
-
-                Image(systemName: symbol)
-                    .font(.system(size: 6.5, weight: .bold))
-                    .foregroundStyle(.black.opacity(0.48))
-                    .opacity(isHovering ? 1 : 0)
-            }
-            .frame(width: 14, height: 14)
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
-        .accessibilityLabel(accessibilityLabel)
-    }
-}
-
-private struct WindowAccessor: NSViewRepresentable {
-    let onResolve: (NSWindow?) -> Void
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView(frame: .zero)
-        DispatchQueue.main.async {
-            onResolve(view.window)
-        }
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async {
-            onResolve(nsView.window)
-        }
     }
 }

@@ -20,7 +20,11 @@ final class AppController: ObservableObject {
         }
 
         didStart = true
-        NSApp.setActivationPolicy(.regular)
+        // MinNote is a background utility: it stays alive for its global
+        // shortcut and launch-at-login support without claiming a Dock or
+        // App Switcher entry. FloatingPanelController explicitly activates
+        // the app again whenever the note panel is shown.
+        NSApp.setActivationPolicy(.accessory)
 
         let hotKeyManager = HotKeyManager { [weak self] in
             self?.togglePanel()
